@@ -40,6 +40,24 @@ class Fixture(BaseModel, frozen=True):
     body: str
 
 
+class Exchange(BaseModel, frozen=True):
+    """One request a browser page sent and the response it got, as the recorder logs it. `kind` is what the page
+    asked for (`document`, `xhr`, `fetch`, `script`, ...); `body` is None when the response isn't text."""
+
+    method: str
+    url: str
+    kind: str
+    request_headers: dict[str, str]
+    request_body: str | None
+    status: int
+    headers: dict[str, str]
+    body: str | None
+
+    @property
+    def fixture(self) -> Fixture:
+        return Fixture(method=self.method, url=self.url, status=self.status, headers=self.headers, body=self.body or "")
+
+
 class Cookie(BaseModel, frozen=True):
     """A cookie as Playwright reads it from the browser."""
 

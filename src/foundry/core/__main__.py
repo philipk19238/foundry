@@ -5,7 +5,11 @@
   site passes. With `--changed <base ref>` instead of keys, checks the sites the branch changed (the PR check); with
   `--all`, every site (the check on `main`).
 - `python -m foundry.core live <site key> --browser <cdp url>`: one crawl of the live portal exactly as Foundry
-  runs it, from that stealth browser; fails unless it is healthy with listings."""
+  runs it, from that stealth browser; fails unless it is healthy with listings.
+- `python -m foundry.core record <out.jsonl> --browser <cdp url>`: logs every request the browser's pages make
+  until stopped (or `--seconds`), printing the ones that could be the portal's API.
+- `python -m foundry.core fixtures <recording.jsonl> <url part>...`: prints, as fixtures JSON, the recorded
+  responses whose URL holds any of the parts."""
 
 import argparse
 import asyncio
@@ -21,8 +25,9 @@ from scrapy.crawler import AsyncCrawlerRunner
 from scrapy.settings import Settings
 from scrapy.utils.log import configure_logging
 
-from foundry.core import spider
+from foundry.core import recorder, spider
 from foundry.core.models import CrawlJob, CrawlStats, Fixture, Site
+from foundry.core.recorder import Recorder
 from foundry.core.sites import Sites
 
 
@@ -125,6 +130,13 @@ def main() -> None:
     crawling = commands.add_parser("live")
     crawling.add_argument("key")
     crawling.add_argument("--browser", required=True, metavar="CDP_URL")
+    recording = commands.add_parser("record")
+    recording.add_argument("out", type=Path)
+    recording.add_argument("--browser", required=True, metavar="CDP_URL")
+    recording.add_argument("--seconds", type=float)
+    picking = commands.add_parser("fixtures")
+    picking.add_argument("recording", type=Path)
+    picking.add_argument("matches", nargs="+")
     options = parser.parse_args()
     root = Path.cwd()
     match options.command:
@@ -143,6 +155,11 @@ def main() -> None:
             sys.exit(0 if asyncio.run(check(root, keys)) else 1)
         case "live":
             sys.exit(0 if asyncio.run(live(root, options.key, options.browser)) else 1)
+        case "record":
+            asyncio.run(Recorder(options.out).record(options.browser, options.seconds))
+        case "fixtures":
+            chosen = recorder.fixtures(options.recording, options.matches)
+            print(TypeAdapter(list[Fixture]).dump_json(chosen, indent=2).decode())
 
 
 if __name__ == "__main__":

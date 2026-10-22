@@ -7,8 +7,11 @@ is that clone.
 - Kernel session id: `{session_id}`. Drive it with the `kernel` MCP tools (`execute_playwright_code` with this
   session id, `computer_action` for screenshots, clicks and typing).
 - You can also connect from Python: `playwright.chromium.connect_over_cdp("{cdp_url}")`, then use
-  `browser.contexts[0]`. Use this to record network traffic (`page.on("response", ...)`) while you click through
-  the portal.
+  `browser.contexts[0]`.
+- Record the portal's network traffic before you click through it: start
+  `{python} -m foundry.core record traffic.jsonl --browser "{cdp_url}"` in the background. It logs every request
+  every tab makes, with bodies, and prints each document, XHR and fetch as it happens: that is where the portal's
+  API shows up. Stop it with `kill` when you're done. Keep `traffic.jsonl` out of your commits.
 - The browser keeps a saved profile for this portal, so you may already be signed in.
 
 ## The repo
@@ -78,7 +81,9 @@ no browser code. A firewall challenge is answered by opening the request as a pa
    stages as the page sets them), its details and its attachments' links. If attachments need a login the listing
    and details don't, keep each attachment's name and link and say so in `gaps`.
 2. Save the responses you used as the site's fixtures: a JSON list of
-   `{{"method", "url", "status", "headers", "body"}}` objects, with `body` as text. Include at least one listing page
+   `{{"method", "url", "status", "headers", "body"}}` objects, with `body` as text.
+   `{python} -m foundry.core fixtures traffic.jsonl <url part>... > <the site's fixtures.json>` writes them from
+   your recording, one per method and URL, and warns when requests differ only in their body. Include at least one listing page
    and, for two opportunities, every response the spider needs before it yields their `Listing` (detail, documents,
    addenda). Replay matches a request by its method and URL only, not its body: when several records POST to one URL,
    find a URL that tells them apart (a query parameter the API accepts) before you capture them, and never invent
