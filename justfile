@@ -6,18 +6,23 @@ default:
 # Install the venv and apply migrations to the local database
 setup:
     uv sync
-    uv run alembic upgrade head
+    FOUNDRY_ENV=local uv run alembic upgrade head
 
 # Serve the UI and API on :8000; runs are carried out in this process
 dev:
-    uv run uvicorn foundry.server.server:app --reload --reload-dir src --port 8000
+    FOUNDRY_ENV=local uv run uvicorn foundry.server.server:app --reload --reload-dir src --port 8000
 
+# Migrate the real database in .env
 migrate:
     uv run alembic upgrade head
 
+# Migrate the local SQLite database in .env.local
+migrate-local:
+    FOUNDRY_ENV=local uv run alembic upgrade head
+
 # Generate a migration after changing src/foundry/app/db/models
 revision message:
-    uv run alembic revision --autogenerate -m "{{ message }}"
+    FOUNDRY_ENV=local uv run alembic revision --autogenerate -m "{{ message }}"
 
 # Publish the keys in .env and .env.shared as Foundry's named Modal secrets (dev environment only)
 secrets:
@@ -39,7 +44,7 @@ lint-py:
     uv run ty check
 
 test *args:
-    uv run pytest {{ args }}
+    FOUNDRY_ENV=local uv run pytest {{ args }}
 
 # Lean proofs and planted-bug checks, on Modal
 prove:

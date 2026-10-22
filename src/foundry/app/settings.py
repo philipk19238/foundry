@@ -1,5 +1,6 @@
 """What differs per environment. Foundry is a dev-only demo: it refuses any key that is not a development key."""
 
+import os
 from pathlib import Path
 from typing import Literal
 
@@ -7,18 +8,25 @@ from pydantic import SecretStr, field_validator
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 
 ROOT = Path(__file__).resolve().parents[3]
+FILES = (
+    ROOT / ".env.shared",
+    ROOT / ".env",
+    *((ROOT / ".env.local",) if os.environ.get("FOUNDRY_ENV") == "local" else ()),
+)
 
 
 class Settings(BaseSettings):
-    """Read from `.env`, then `.env.shared` (keys shared with another project, e.g. a symlink to its env file), then
-    the process environment. Both files are git-ignored. The files win over the environment, so a stale key exported
-    machine-wide (launchctl) can't shadow this project's own; on Modal there are no files and the environment is all
-    there is."""
+    """Read from `.env.shared` (keys shared with another project, e.g. a symlink to its env file), then `.env` (the
+    real settings: the Postgres database, R2, Modal), then, for local development only (`FOUNDRY_ENV=local`),
+    `.env.local` (SQLite and a files folder), each file winning over the one before; then the process environment. All
+    three files are git-ignored. The files win over the environment, so a stale key exported machine-wide (launchctl)
+    can't shadow this project's own; on Modal there are no files and the environment is all there is."""
 
-    model_config = SettingsConfigDict(env_file=(ROOT / ".env.shared", ROOT / ".env"), extra="ignore")
+    model_config = SettingsConfigDict(env_file=FILES, extra="ignore")
 
     database_url: str = f"sqlite+aiosqlite:///{ROOT / 'foundry.db'}"
     base_url: str = "http://localhost:8000"
+    modal_base_url: str | None = None
     files_dir: Path = ROOT / "files"
     files_storage: Literal["folder", "r2"] = "folder"
     files_bucket: str | None = None

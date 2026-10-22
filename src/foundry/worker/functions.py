@@ -38,7 +38,7 @@ def deployment_config() -> modal.Secret:
         raise exceptions.MissingSetting("FILES_BUCKET: Modal keeps attachments in R2")
     return modal.Secret.from_dict(
         {
-            "BASE_URL": settings.base_url,
+            "BASE_URL": settings.modal_base_url or settings.base_url,
             "DISPATCHER": "modal",
             "WORKSPACES_DIR": WORKSPACES,
             "FILES_STORAGE": "r2",
@@ -55,7 +55,9 @@ image = (
     .add_local_python_source("foundry", ignore=["**/__pycache__/**"])
 )
 keys = modal.Secret.from_name(worker.KEYS, environment_name=settings.modal_environment)
-app = modal.App(worker.APP, image=image, secrets=[keys, deployment_config()] if modal.is_local() else [keys])
+# Modal needs the same objects declared on both sides: a container rebuilds this config from its own environment
+# (DEPLOYED_COMMIT, BASE_URL and FILES_BUCKET came with it), so the list never depends on where it runs.
+app = modal.App(worker.APP, image=image, secrets=[keys, deployment_config()])
 workspaces = modal.Volume.from_name("foundry-workspaces", create_if_missing=True)
 
 
