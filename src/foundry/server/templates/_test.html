@@ -16,7 +16,6 @@
     <div class="result {{ crawl.verdict }}">
       <b class="num">{{ crawl.valid }}</b> listings found{% if crawl.invalid %}, <span class="num">{{ crawl.invalid }}</span> rejected{% endif %}{% if crawl.crashed %}, and the scrape crashed{% endif %}.
       <span class="muted">Tested v{{ trial.scraper.version }} on {{ tried.finished.finished_at.strftime("%b %d at %H:%M") }}.</span>
-      {% if crawl.browser %}<span class="muted">The portal turned plain requests away, so this ran from a stealth browser.</span>{% endif %}
       {% if crawl.verdict == "relogin" %}<span class="warn">The portal turned the scraper away{% if crawl.refused %} ({{ crawl.refused }}){% endif %} although it sent the saved sign-in. Ask the agent to sign in again.</span>
       {% elif crawl.verdict == "heal" and crawl.refused %}<span class="warn">The portal turned the scraper away ({{ crawl.refused }}){% if crawl.browser %}, even from a stealth browser{% endif %}. Getting past it is the scraper's job: ask the agent to fix it.</span>
       {% elif crawl.verdict == "heal" %}<span class="warn">The scraper doesn't work on the live portal. Ask the agent to fix it.</span>{% endif %}
