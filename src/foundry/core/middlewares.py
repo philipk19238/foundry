@@ -29,6 +29,7 @@ from foundry.core.spider import (
     LOGGED_OUT,
     PLAIN,
     REFUSED,
+    STOPPING,
     UNMATCHED,
     PortalSpider,
 )
@@ -148,7 +149,11 @@ class BrowserMiddleware:
             crawler, cdp_url, crawler.settings.get("FOUNDRY_HOME"), Session.model_validate_json(raw) if raw else None
         )
         crawler.signals.connect(middleware.close, signal=signals.spider_closed)
+        crawler.signals.connect(middleware.stopping, signal=STOPPING)
         return middleware
+
+    def stopping(self) -> None:
+        self._pace.hurry()
 
     async def process_request(self, request: Request) -> Response | None:
         if request.meta.get(PLAIN):
@@ -181,7 +186,9 @@ class BrowserMiddleware:
         return kind(url=got["url"], status=got["status"], headers=headers, body=body, request=request)
 
     async def _paced(self, sent: Sent) -> Fetched:
-        """`sent` fetched in the site's turn, and again, slower, while the portal answers with a rate limit."""
+        """`sent` fetched in the site's turn, and again, slower, while the portal answers with a rate limit. A crawl
+        that is stopping hands the rate limit back instead, and Scrapy's retry queues the request again, where the
+        stopping crawl saves it."""
         site = "{0.scheme}://{0.netloc}".format(urlsplit(sent["url"]))
         for _ in range(RATE_TRIES):
             async with self._pace.turn(site):
@@ -189,6 +196,8 @@ class BrowserMiddleware:
             wait = pace.retry_after(got["status"], dict(got["headers"]))
             if wait is None:
                 self._pace.went_through(site)
+                return got
+            if self._pace.hurrying:
                 return got
             await asyncio.sleep(self._pace.limited(site, wait))
         return got

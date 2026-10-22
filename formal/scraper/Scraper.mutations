@@ -58,3 +58,15 @@ detects KeepsCrawling
 cfg Live-Crawled
 -     /\ st' = IF Live THEN "ready" ELSE "in_review"
 +     /\ st' = IF Live THEN st ELSE "in_review"
+
+mutation approve checks that the source is free but never takes the lease
+detects NoMergeWhileAgent
+cfg Verified-Approve
+-     /\ IF ApproveLeased THEN Free /\ holder' = P /\ lapsed' = FALSE ELSE UNCHANGED lease
++     /\ IF ApproveLeased THEN Free /\ UNCHANGED lease ELSE UNCHANGED lease
+
+mutation the lease query counts a lease held by approve as free
+detects NoMergeWhileAgent
+cfg Verified-Approve
+- Free == holder = None \/ lapsed
++ Free == holder \in {None, P} \/ lapsed

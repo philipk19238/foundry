@@ -1,3 +1,4 @@
+import Std.Data.HashSet
 /-
 The pure rules of the foundry catalog, transcribed from the Python:
 
@@ -13,6 +14,9 @@ The pure rules of the foundry catalog, transcribed from the Python:
 * `Standing.working` / `Standing.settled`  foundry/app/scrapers/models.py, called from foundry/app/app.py
   `App._build` and `App._review`.
 * `opportunities`  foundry/app/catalog/store.py `_RANKED` joined on `rank == 1` in `_OPPORTUNITIES`.
+* `limited` / `wentThrough`  foundry/core/pace.py `Pace.limited` / `Pace.went_through` (section 11).
+* `uploadStep` / `crawlStep`  foundry/app/scrapers/scrapers.py `Uploads.upload_new` against
+  foundry/core/pipelines.py `FilesPipeline` under crashes and lost containers (section 12).
 
 stage_vectors.txt is the `#eval` output of section 10, for a pytest against `Stage.of` and `Standing`.
 
@@ -903,5 +907,297 @@ def vectorHeader : List String := [
 #print axioms settled_not_busy
 #print axioms opportunities_one_each
 #print axioms opportunities_newest
+
+/-! ## 11. Pace: how long the stealth browser waits between requests to one site
+
+foundry/core/pace.py `Pace`, in milliseconds (`SLOWEST = 60.0` s is 60000). `limited` is `Pace.limited` with
+`retry_after` None read as 0 (the Python's `retry_after or 0.0`); `wentThrough` is `Pace.went_through` for any easing
+that never raises the delay (the Python's `delay * EASING`, EASING = 0.8). -/
+
+def slowest : Nat := 60000
+def firstSlowdown : Nat := 1000
+
+/-- `min(SLOWEST, max(self._delays[site] * 2 or FIRST_SLOWDOWN, retry_after or 0.0))`. -/
+def limited (d ra : Nat) : Nat := min slowest (max (if d * 2 = 0 then firstSlowdown else d * 2) ra)
+
+/-- `max(self._base, self._delays[site] * EASING)`. -/
+def wentThrough (ease : Nat → Nat) (base d : Nat) : Nat := max base (ease d)
+
+/-- EASING = 0.8, rounded down to the millisecond (the Python does not round; see `eases_to_base`). -/
+def ease45 (d : Nat) : Nat := d * 4 / 5
+
+inductive PaceEvent where
+  | ok
+  | limit (retryAfter : Nat)
+deriving Repr, BEq
+
+def paceStep (ease : Nat → Nat) (base d : Nat) : PaceEvent → Nat
+  | .ok => wentThrough ease base d
+  | .limit ra => limited d ra
+
+def paceRun (ease : Nat → Nat) (base d : Nat) (es : List PaceEvent) : Nat := es.foldl (paceStep ease base) d
+
+theorem limited_le_slowest (d ra : Nat) : limited d ra ≤ slowest := by
+  unfold limited; exact Nat.min_le_left _ _
+
+theorem paceStep_in_range (ease : Nat → Nat) (hE : ∀ x, ease x ≤ x) (base d : Nat) (hb : base ≤ slowest)
+    (h : base ≤ d ∧ d ≤ slowest) (e : PaceEvent) :
+    base ≤ paceStep ease base d e ∧ paceStep ease base d e ≤ slowest := by
+  have := hE d
+  cases e with
+  | ok => simp only [paceStep, wentThrough]; omega
+  | limit ra => simp only [paceStep, limited]; split <;> omega
+
+/-- With a base pace of at most a minute, the delay never leaves [base, SLOWEST], whatever the portal answers and
+whatever `Retry-After` it sends. -/
+theorem pace_in_range (ease : Nat → Nat) (hE : ∀ x, ease x ≤ x) (base : Nat) (hb : base ≤ slowest)
+    (es : List PaceEvent) : base ≤ paceRun ease base base es ∧ paceRun ease base base es ≤ slowest := by
+  suffices ∀ d, base ≤ d ∧ d ≤ slowest → base ≤ paceRun ease base d es ∧ paceRun ease base d es ≤ slowest from
+    this base ⟨Nat.le_refl _, hb⟩
+  induction es with
+  | nil => intro d h; exact h
+  | cons e es ih => intro d h; exact ih _ (paceStep_in_range ease hE base d hb h e)
+
+/-- Recall for `pace_in_range`: a base pace slower than SLOWEST is cut to SLOWEST by a rate limit, so the site is
+asked faster after a 429 than before it. -/
+theorem slow_base_limited_below_base : limited 90000 0 < 90000 := by decide
+
+/-- Exact easing (no rounding): after n successes from d the Python's delay is max(base, d * 0.8^n), and that is
+base once d * 4^n ≤ base * 5^n. From anywhere in range, 50 successes bring any base of at least 1 ms back to base. -/
+theorem eases_to_base (base d : Nat) (hb : 1 ≤ base) (hd : d ≤ slowest) : d * 4 ^ 50 ≤ base * 5 ^ 50 := by
+  have h1 : d * 4 ^ 50 ≤ slowest * 4 ^ 50 := Nat.mul_le_mul_right _ hd
+  have h2 : slowest * 4 ^ 50 ≤ 1 * 5 ^ 50 := Nat.le_of_ble_eq_true rfl
+  have h3 : 1 * 5 ^ 50 ≤ base * 5 ^ 50 := Nat.mul_le_mul_right _ hb
+  exact Nat.le_trans h1 (Nat.le_trans h2 h3)
+
+/-- The bound is tight for a one-second base: from SLOWEST it takes 19 successes, and 18 are not enough. -/
+theorem one_second_base_needs_19 : slowest * 4 ^ 19 ≤ 1000 * 5 ^ 19 ∧ ¬ slowest * 4 ^ 18 ≤ 1000 * 5 ^ 18 :=
+  ⟨Nat.le_of_ble_eq_true rfl, Nat.not_le_of_gt (Nat.le_of_ble_eq_true rfl)⟩
+
+/-- With base 0 (a site with no `delay`, the default) exact easing never gets back to 0: there is no bound. -/
+theorem zero_base_never_returns (n : Nat) : 0 < firstSlowdown * 4 ^ n := Nat.mul_pos (by decide) (Nat.pow_pos (by decide))
+
+/-- The `or` floor only applies at exactly 0: with base 0, one rate limit, then four requests that went through, the
+next bare 429 slows the site to 0.818 s, less than FIRST_SLOWDOWN, and it keeps shrinking with more successes. -/
+theorem quiet_spell_limits_below_first :
+    paceRun ease45 0 0 [.limit 0, .ok, .ok, .ok, .ok, .limit 0] < firstSlowdown := by decide
+
+/-- The fix: `max(self._delays[site] * 2, FIRST_SLOWDOWN, retry_after or 0.0)` capped at SLOWEST. -/
+def limitedFixed (d ra : Nat) : Nat := min slowest (max (max (d * 2) firstSlowdown) ra)
+
+theorem limitedFixed_at_least_first (d ra : Nat) : firstSlowdown ≤ limitedFixed d ra := by
+  unfold limitedFixed slowest firstSlowdown; omega
+
+theorem limitedFixed_doubles (d ra : Nat) (h : firstSlowdown ≤ d * 2) (h' : d * 2 ≤ slowest) :
+    d * 2 ≤ limitedFixed d ra := by
+  unfold limitedFixed; omega
+
+-- Bounded search: from every delay in range, at bases 0, 1 s and 60 s, one step stays in range.
+#guard [0, 1000, 60000].all fun base => (List.range 61).all fun k =>
+  let d := max base (k * 1000)
+  [PaceEvent.ok, .limit 0, .limit 5000, .limit 120000].all fun e =>
+    let d' := paceStep ease45 base d e
+    decide (base ≤ d') && decide (d' ≤ slowest)
+
+-- A first rate limit from no delay waits FIRST_SLOWDOWN (what the `or` is for).
+#guard limited 0 0 == firstSlowdown
+
+-- Reach: a burst of limits gets to SLOWEST, and successes then bring a one-second base back to base.
+#guard paceRun ease45 1000 1000 (List.replicate 7 (.limit 0)) == slowest
+#guard paceRun ease45 1000 slowest (List.replicate 19 .ok) == 1000
+
+def PaceEvent.py : PaceEvent → String
+  | .ok => "ok"
+  | .limit ra => s!"limit {ra}"
+
+def paceCases : List (Nat × List PaceEvent) := [
+  (0, [.limit 0]), (0, [.limit 0, .limit 0]), (0, [.limit 0, .ok]), (0, [.limit 0, .ok, .ok, .ok, .ok, .limit 0]),
+  (0, [.limit 7000]), (0, [.limit 120000]), (500, [.limit 0]), (500, [.limit 0, .ok, .ok]),
+  (1000, [.limit 0, .limit 0, .limit 0]), (1000, List.replicate 7 (.limit 0)),
+  (1000, List.replicate 7 (.limit 0) ++ [.ok, .ok]), (2000, [.limit 3000]), (2000, [.limit 0, .limit 90000]),
+  (90000, [.limit 0])]
+
+def paceVectors : List String := paceCases.map fun (base, es) =>
+  s!"pace {base} {(paceRun ease45 base base es)} {String.intercalate "," (es.map PaceEvent.py)}"
+
+/-! ## 12. Uploads: the `uploaded` cursor over files.jsonl, under crashes and lost containers
+
+foundry/app/scrapers/scrapers.py `Uploads.upload_new`, beside foundry/core/pipelines.py `FilesPipeline.process_item`
+(content written under its digest, then the line appended to files.jsonl) and foundry/worker/worker.py `VolumeCrawls`
+(the volume is committed by `keep`; a new container sees the last commit). A local crash keeps the disk; a lost
+container rolls the disk back to the last `keep`. The bucket is never rolled back. `saved` is `Uploads.saved`, the
+files of a crawl's report, new with every attempt. -/
+
+structure FileLine where
+  url : Nat
+  digest : Nat
+deriving BEq, Hashable, Repr
+
+structure Disk where
+  log : List FileLine
+  files : List Nat
+  cursor : Nat
+deriving BEq, Hashable, Repr
+
+inductive UpPc where
+  | check
+  | put
+  | unlink
+  | advance
+deriving BEq, Hashable, Repr
+
+structure World where
+  disk : Disk
+  snap : Disk
+  bucket : List Nat
+  pc : UpPc
+  pending : Option FileLine
+  todo : List FileLine
+  saved : List Nat
+  crashes : Nat
+deriving BEq, Hashable, Repr
+
+def addNew (x : Nat) (xs : List Nat) : List Nat := if xs.contains x then xs else xs ++ [x]
+
+def current (w : World) : Option FileLine := w.disk.log[w.disk.cursor]?
+
+/-- One read of files.jsonl in `upload_new`: every line's file goes into `saved`. -/
+def readLog (w : World) : List Nat :=
+  w.disk.log.foldl (fun s l => addNew l.url s) w.saved
+
+/-- One step of `upload_new` at the cursor: `content.exists()`, `bucket.put`, `content.unlink()`, `cursor.write_text`. -/
+def uploadStep (w : World) : Option World :=
+  match w.pc, current w with
+  | .check, some l =>
+    some { w with saved := readLog w, pc := if w.disk.files.contains l.digest then .put else .advance }
+  | .put, some l => some { w with bucket := addNew l.digest w.bucket, pc := .unlink }
+  | .unlink, some l => some { w with disk := { w.disk with files := w.disk.files.filter (· != l.digest) }, pc := .advance }
+  | .advance, some _ => some { w with disk := { w.disk with cursor := w.disk.cursor + 1 }, pc := .check }
+  | _, _ => none
+
+/-- `FilesPipeline.process_item`: the content under its digest first, then the line. -/
+def crawlStep (w : World) : Option World :=
+  match w.pending, w.todo with
+  | some l, _ => some { w with disk := { w.disk with log := w.disk.log ++ [l] }, pending := none }
+  | none, l :: rest => some { w with disk := { w.disk with files := addNew l.digest w.disk.files }, pending := some l, todo := rest }
+  | none, [] => none
+
+def maxCrashes : Nat := 2
+
+/-- The worker dies; the next attempt finds the disk as it was and downloads again what was not logged. -/
+def crash (w : World) : World :=
+  { w with pc := .check, pending := none, todo := w.pending.toList ++ w.todo, saved := [], crashes := w.crashes + 1 }
+
+/-- The container is lost; the next one finds the volume as the last `keep` committed it, and downloads again every
+file not in that files.jsonl. -/
+def restore (w : World) : World :=
+  { w with disk := w.snap, pc := .check, pending := none, saved := [], crashes := w.crashes + 1,
+           todo := (w.disk.log.drop w.snap.log.length) ++ w.pending.toList ++ w.todo }
+
+def successors (w : World) : List World :=
+  (uploadStep w).toList ++ (crawlStep w).toList
+  ++ (if w.snap == w.disk then [] else [{ w with snap := w.disk }])
+  ++ (if w.crashes < maxCrashes then [crash w, restore w] else [])
+
+def inBucket (w : World) (d : Nat) : Bool := w.bucket.contains d
+
+def safeDisk (w : World) (k : Disk) : Bool :=
+  ((k.log.take k.cursor).all fun l => inBucket w l.digest)
+  && ((k.log.drop k.cursor).all fun l => k.files.contains l.digest || inBucket w l.digest)
+
+/-- Every line before the cursor is in the bucket, and every line after it still has its content on disk or is in
+the bucket already; the same for the last kept snapshot; and the step under way holds its part. -/
+def uploadsSafe (w : World) : Bool :=
+  safeDisk w w.disk && safeDisk w w.snap
+  && (match w.pending with | some l => w.disk.files.contains l.digest || inBucket w l.digest | none => true)
+  && (match w.pc, current w with
+      | .put, some l => w.disk.files.contains l.digest
+      | .unlink, some l => inBucket w l.digest
+      | .advance, some l => inBucket w l.digest
+      | _, _ => true)
+
+/-- What `Crawls.live` does after the crawl: one last `upload_new` to the end of files.jsonl. -/
+def drain (fuel : Nat) (w : World) : World :=
+  match fuel with
+  | 0 => w
+  | fuel + 1 => match uploadStep w with
+    | some w' => drain fuel w'
+    | none => { w with saved := readLog w }
+
+/-- A finished crawl's report: every file in files.jsonl is in `saved` and in the bucket, so whatever the
+FilesPipeline skipped as known (files.jsonl's URLs) is in the report's files with its content stored. -/
+def reportComplete (w : World) : Bool :=
+  if w.todo.isEmpty && w.pending.isNone then
+    let d := drain 40 { w with pc := .check }
+    d.disk.log.all fun l => d.saved.contains l.url && inBucket d l.digest
+  else true
+
+/-- Two files with the same bytes (one digest) and a third: the shared digest is the case where `content.exists()`
+can be false for a line that was uploaded under an earlier one. -/
+def uploadsStart : World :=
+  { disk := ⟨[], [], 0⟩, snap := ⟨[], [], 0⟩, bucket := [], pc := .check, pending := none,
+    todo := [⟨1, 7⟩, ⟨2, 7⟩, ⟨3, 8⟩], saved := [], crashes := 0 }
+
+/-- Every reachable world, by breadth-first search. -/
+def explore (fuel : Nat) (frontier : List World) (seen : Std.HashSet World) (all : Array World) : Array World :=
+  match fuel with
+  | 0 => all
+  | fuel + 1 =>
+    let (next, seen, all) := frontier.foldl (fun (acc : List World × Std.HashSet World × Array World) w =>
+      (successors w).foldl (fun (acc : List World × Std.HashSet World × Array World) v =>
+        if acc.2.1.contains v then acc else (v :: acc.1, acc.2.1.insert v, acc.2.2.push v)) acc) ([], seen, all)
+    if next.isEmpty then all else explore fuel next seen all
+
+def uploadWorlds : Array World := explore 200 [uploadsStart] ((({} : Std.HashSet World).insert uploadsStart)) #[uploadsStart]
+
+-- The search finished (the frontier emptied before the fuel ran out) and is not trivial.
+#guard uploadWorlds.size > 1000
+#eval IO.println s!"UPLOAD WORLDS {uploadWorlds.size}"
+#guard (explore 199 [uploadsStart] ((({} : Std.HashSet World).insert uploadsStart)) #[uploadsStart]).size == uploadWorlds.size
+-- Safety: no reachable world skips a line it never uploaded, and every finished crawl reports every file, stored.
+#guard uploadWorlds.all uploadsSafe
+#guard uploadWorlds.all reportComplete
+-- Witness: a crash after unlink and before the cursor write is reachable (the content is gone, the line not counted).
+#guard uploadWorlds.any fun w => w.pc == .check && match current w with
+  | some l => !w.disk.files.contains l.digest && inBucket w l.digest && w.crashes > 0 | none => false
+-- Witness: a lost container brings back content already uploaded, so the line is put twice (the same bytes).
+#guard uploadWorlds.any fun w => w.pc == .put && match current w with
+  | some l => inBucket w l.digest && w.crashes > 0 | none => false
+-- Witness: a line whose digest an earlier line already uploaded and unlinked is skipped, not lost.
+#guard uploadWorlds.any fun w => w.pc == .advance && w.crashes == 0 && match current w with
+  | some l => l.url == 2 && !w.disk.files.contains l.digest | none => false
+
+/-- `CrawlReport.files` meets the catalog in `App.refresh`: `{**known, **report.files}`. Every URL the restarted
+crawl's FilesPipeline skips is in `known_files` or files.jsonl, and so is a key of that map. -/
+theorem skipped_is_reported (known logUrls : List Nat) (u : Nat) (h : u ∈ known ∨ u ∈ logUrls) :
+    u ∈ known ++ logUrls := List.mem_append.mpr h
+
+def uploadVectors : List String := [
+  "# upload <files.jsonl digests> <uploaded> <content on disk> <puts>     Uploads.upload_new on that folder",
+  "upload 7,7,8 0 7,8 7,8",
+  "upload 7,7,8 1 7,8 7,8",
+  "upload 7,7,8 2 8 8",
+  "upload 7,7,8 3 - -",
+  "upload 7,8 1 - -"]
+
+-- The upload vectors agree with the model: puts in order, from the cursor, only where the content is on disk.
+#guard (uploadVectors.drop 1).all fun line =>
+  match line.splitOn " " with
+  | [_, log, cur, disk, puts] =>
+    let nums (s : String) : List Nat := if s == "-" then [] else (s.splitOn ",").map String.toNat!
+    let lines := (nums log).map fun d => FileLine.mk d d
+    let w : World := { uploadsStart with disk := ⟨lines, nums disk, cur.toNat!⟩, todo := [] }
+    (drain 40 w).bucket == nums puts
+  | _ => false
+
+#eval IO.println (String.intercalate "\n" ((
+  ["# Generated by #eval in FoundryRules.lean from paceRun and drain. Do not edit.",
+   "# pace <base ms> <delay after, ms> <events>    Pace(base / 1000, 1, stats): `ok` is went_through(site),",
+   "#   `limit R` is limited(site, R / 1000 or None for 0); compare within 1 ms per ok (the model rounds down)."]
+  ++ paceVectors ++ uploadVectors).map ("RESUMEVEC " ++ ·)))
+
+#print axioms pace_in_range
+#print axioms eases_to_base
+#print axioms limitedFixed_at_least_first
 
 end Foundry

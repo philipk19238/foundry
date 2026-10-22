@@ -141,14 +141,16 @@ _REOPEN = (
     .values(status=RunStatus.QUEUED, summary=None, finished_at=None)
     .returning(Run.id)
 )
+_STARTABLE = (RunStatus.QUEUED, RunStatus.RESTARTING)
 _START = (
     update(Run)
-    .where(Run.id == bindparam("run"))
+    .where(Run.id == bindparam("run"), Run.status.in_(_STARTABLE), Run.attempts == bindparam("attempt"))
     .values(status=RunStatus.RUNNING, started_at=bindparam("at"), beat_at=bindparam("at"))
+    .returning(Run.id)
 )
 _FINISH = (
     update(Run)
-    .where(Run.id == bindparam("run"), Run.status.not_in(_ENDED))
+    .where(Run.id == bindparam("run"), Run.status.not_in(_ENDED), Run.attempts == bindparam("attempt"))
     .values(
         status=bindparam("state"),
         summary=bindparam("text"),
@@ -249,8 +251,10 @@ async def reopen(session: AsyncSession, run_id: uuid.UUID) -> bool:
     return await session.scalar(_REOPEN, {"run": run_id}) is not None
 
 
-async def start(session: AsyncSession, run_id: uuid.UUID, at: dt.datetime) -> None:
-    await session.execute(_START, {"run": run_id, "at": at})
+async def start(session: AsyncSession, run_id: uuid.UUID, attempt: int, at: dt.datetime) -> bool:
+    """Starts a queued (or restarting) run's `attempt`; False when another dispatch already started it, or a newer
+    attempt replaced it (formal/runs/crawls `FencedStart`)."""
+    return await session.scalar(_START, {"run": run_id, "attempt": attempt, "at": at}) is not None
 
 
 async def set_live_view(session: AsyncSession, run_id: uuid.UUID, url: str | None) -> None:
@@ -264,12 +268,16 @@ async def set_status(session: AsyncSession, run_id: uuid.UUID, status: RunStatus
 async def finish(
     session: AsyncSession,
     run_id: uuid.UUID,
+    attempt: int,
     status: RunStatus,
     summary: str,
     stats: dict[str, JsonValue] | None,
     at: dt.datetime,
 ) -> None:
-    await session.execute(_FINISH, {"run": run_id, "state": status, "text": summary, "numbers": stats, "at": at})
+    """Ends `attempt` of the run; nothing when the run already ended or a newer attempt replaced this one
+    (formal/runs/crawls `FencedFinish`)."""
+    numbers = {"run": run_id, "attempt": attempt, "state": status, "text": summary, "numbers": stats, "at": at}
+    await session.execute(_FINISH, numbers)
 
 
 async def add_event(

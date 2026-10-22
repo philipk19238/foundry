@@ -132,7 +132,8 @@ class Jobs:
         a run lets go of its source, the jobs waiting on it are woken, and an agent whose run ended with messages it
         never read is reopened to read them."""
         run = await self._history.run(run_id)
-        await self._runs.start(run.id)
+        if not await self._runs.start(run):
+            return
         try:
             await self._carry(run)
         finally:
@@ -154,12 +155,16 @@ class Jobs:
             else:
                 follow = await self._trial(run)
         except exceptions.SourceBusy as error:
+            if run.kind.crawls and run.attempts > 0:
+                # The attempt it replaces still holds the source: leave this one running, unbeaten, for the reaper to
+                # carry on once that lease lapses (formal/runs/crawls `BusyWaits`).
+                return
             if run.has_agent:
                 await self._runs.defer(run.id)
                 if await self._leases.free(run.source_id):
                     await self._queue.wake(run.source_id)
             else:
-                await self._runs.finish(run.id, RunStatus.SKIPPED, str(error))
+                await self._runs.finish(run, RunStatus.SKIPPED, str(error))
             return
         except exceptions.CrawlStopped:
             if (await self._history.run(run.id)).status == RunStatus.QUEUED:
@@ -167,14 +172,14 @@ class Jobs:
             return
         except exceptions.CrawlStalled as error:
             if run.attempts + 1 >= MOST_ATTEMPTS or not await self._queue.retry(run):
-                await self._runs.finish(run.id, RunStatus.FAILED, str(error))
+                await self._runs.finish(run, RunStatus.FAILED, str(error))
             return
         except exceptions.Error as error:
-            await self._runs.finish(run.id, RunStatus.FAILED, str(error))
+            await self._runs.finish(run, RunStatus.FAILED, str(error))
             return
         except Exception as error:
             logger.exception("run %s crashed", run.id)
-            await self._runs.finish(run.id, RunStatus.FAILED, f"crashed: {type(error).__name__}: {error}")
+            await self._runs.finish(run, RunStatus.FAILED, f"crashed: {type(error).__name__}: {error}")
             return
         if (await self._history.run(run.id)).status == RunStatus.RESTARTING:
             await self._queue.redeploy(run.id)
@@ -209,7 +214,7 @@ class Jobs:
             "crawl": refreshed.crawl.model_dump(mode="json"),
             **refreshed.ingested.model_dump(),
         }
-        await self._runs.finish(run.id, RunStatus.SUCCEEDED, refreshed.summary, stats)
+        await self._runs.finish(run, RunStatus.SUCCEEDED, refreshed.summary, stats)
         return NEXT.get(refreshed.health.status)
 
     async def _build(self, run: RunView, lease: Lease, task: tasks.Task) -> RunKind | None:
@@ -221,22 +226,22 @@ class Jobs:
         match outcome:
             case outcomes.ScraperPull(version=version, url=url):
                 await self._healths.set(lease, SourceStatus.READY if standing.live else SourceStatus.IN_REVIEW)
-                await self._runs.finish(run.id, RunStatus.SUCCEEDED, f"proposed scraper version {version}: {url}")
+                await self._runs.finish(run, RunStatus.SUCCEEDED, f"proposed scraper version {version}: {url}")
                 return RunKind.TRIAL
             case outcomes.Restart(commit=commit):
                 await self._timeline.log(run.id, EventKind.STATUS, f"Restarting on main at {commit[:12]}.")
                 await self._pauses.restart(run.id)
                 return None
             case outcomes.FreshSession():
-                await self._runs.finish(run.id, RunStatus.SUCCEEDED, "signed in again and saved the session")
+                await self._runs.finish(run, RunStatus.SUCCEEDED, "signed in again and saved the session")
                 return RunKind.REFRESH
             case outcomes.Reply():
                 await self._healths.set(lease, standing.settled())
-                await self._runs.finish(run.id, RunStatus.SUCCEEDED, "replied without changing the scraper")
+                await self._runs.finish(run, RunStatus.SUCCEEDED, "replied without changing the scraper")
                 return None
             case outcomes.Rejection(reason=reason):
                 await self._healths.set(lease, standing.rejected(run.kind))
-                await self._runs.finish(run.id, RunStatus.FAILED, reason)
+                await self._runs.finish(run, RunStatus.FAILED, reason)
                 return None
             case _:
                 assert_never(outcome)
@@ -254,7 +259,7 @@ class Jobs:
         }
         crawl = report.crawl
         summary = f"tried v{scraper.version} ({scraper.state}): {crawl.verdict}, {crawl.valid} listings"
-        await self._runs.finish(run.id, RunStatus.SUCCEEDED, summary, stats)
+        await self._runs.finish(run, RunStatus.SUCCEEDED, summary, stats)
         if scraper.state == ScraperState.PROPOSED:
             try:
                 await self._proposals.report_test(scraper, run.id, report)
@@ -266,7 +271,7 @@ class Jobs:
         """Registers a merged scraper and refreshes from it, or hands a closed one to a person."""
         proposal = await self._versions.proposed(run.source_id)
         if proposal is None:
-            await self._runs.finish(run.id, RunStatus.SKIPPED, "no scraper is waiting for review")
+            await self._runs.finish(run, RunStatus.SKIPPED, "no scraper is waiting for review")
             return None
         pull = await self._pulls.get(proposal.pull)
         if pull.merged and pull.merge_commit_sha is not None:
@@ -275,16 +280,16 @@ class Jobs:
             await self._versions.closed(lease, proposal)
             standing = await self._versions.standing(run.source_id)
             await self._healths.set(lease, standing.settled())
-            await self._runs.finish(run.id, RunStatus.SUCCEEDED, f"{pull.html_url} was closed without merging")
+            await self._runs.finish(run, RunStatus.SUCCEEDED, f"{pull.html_url} was closed without merging")
             return None
-        await self._runs.finish(run.id, RunStatus.SKIPPED, f"{pull.html_url} is still open")
+        await self._runs.finish(run, RunStatus.SKIPPED, f"{pull.html_url} is still open")
         return None
 
     async def _merged(self, run: RunView, lease: Lease, proposal: Proposal, commit: str) -> RunKind:
         await self._versions.merged(lease, proposal, commit)
         await self._healths.set(lease, SourceStatus.READY)
         await self._runs.finish(
-            run.id, RunStatus.SUCCEEDED, f"registered scraper version {proposal.version} at {commit[:12]}"
+            run, RunStatus.SUCCEEDED, f"registered scraper version {proposal.version} at {commit[:12]}"
         )
         return RunKind.REFRESH
 

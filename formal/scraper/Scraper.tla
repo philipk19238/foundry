@@ -21,7 +21,8 @@ CONSTANTS MaxV,           \* versions (and pull requests) a source can get
           FinallyWakesAll,\* SHIPPED: Jobs.carry_out's finally wakes the source even when the run never got the lease
           RereadOnSay,    \* FIX: RunChat.say re-reads the run after writing and reopens it if it has ended meanwhile
           ReviewAll,      \* FIX: the merge check settles any decided version, earliest merged first, not just the newest
-          SettleOnCrash   \* FIX: an agent job that fails settles the source's status as a rejection would
+          SettleOnCrash,  \* FIX: an agent job that fails settles the source's status as a rejection would
+          ApproveLeased   \* FIX: Reviews.approve checks and merges under the source's lease (Leases.hold)
 
 None == "none"
 A == "a"   \* the agent job (onboard, heal; relogin is left out)
@@ -29,6 +30,7 @@ F == "f"   \* the crawl (refresh)
 V == "v"   \* the merge check (review)
 T == "t"   \* the test crawl (trial), which holds no lease
 I == "i"   \* Imports._propose's run
+P == "p"   \* Reviews.approve holding the lease from its agent check to its merge (ApproveLeased)
 Runs == {A, F, V, T, I}
 Leased == {A, F, V, I}                       \* db/models/runs.py RunKind.leased
 Active == {"queued", "deferred", "running"}  \* runs/models.py ACTIVE (waiting, restarting left out)
@@ -57,7 +59,7 @@ flags == <<deaths, asks, imported, spin>>
 vars == <<lease, runs, agent, chat, code, review, source, flags>>
 
 TypeOK ==
-    /\ holder \in Leased \cup {None} /\ lapsed \in BOOLEAN
+    /\ holder \in Leased \cup {P, None} /\ lapsed \in BOOLEAN
     /\ status \in [Runs -> {"none"} \cup Active \cup Ended]
     /\ pc \in [Runs -> {"idle", "queued", "claim", "busy", "check", "wakeBusy", "work", "turn", "release", "wake",
                        "owed", "trial", "dead"}]
@@ -347,7 +349,7 @@ Die(r) ==
 
 \* runs.py LEASE passes with no renewal (Leases.renew is never called again)
 Lapse ==
-    /\ holder /= None /\ ~lapsed /\ pc[holder] \in Gone
+    /\ holder \in Runs /\ ~lapsed /\ pc[holder] \in Gone
     /\ lapsed' = TRUE
     /\ UNCHANGED <<holder, runs, agent, chat, code, review, source, flags>>
 
@@ -425,10 +427,13 @@ SayWrite ==
 
 \* app.py Reviews.approve: `agent = await self._history.last_agent(source_id)`, refuse if active (AgentWorking);
 \* refuse with nothing proposed (NothingToMerge). Approvals come from the same budget of asks.
+\* ApproveLeased: the check runs under Leases.hold, so a busy source refuses (SourceBusy) and no agent can claim the
+\* source and prepare its workspace until the merge is done.
 ApproveCheck ==
     /\ apc = "idle" /\ asks < Asks /\ status[A] \notin Active /\ Newest > 0
     /\ apc' = "checked" /\ asks' = asks + 1
-    /\ UNCHANGED <<lease, runs, agent, chat, code, badMerge, source, deaths, imported, spin>>
+    /\ IF ApproveLeased THEN Free /\ holder' = P /\ lapsed' = FALSE ELSE UNCHANGED lease
+    /\ UNCHANGED <<runs, agent, chat, code, badMerge, source, deaths, imported, spin>>
 
 \* Reviews.approve, then: Versions.proposed, GitHubPulls.get, GitHubPulls.merge unless merged (GitHub refuses a closed
 \* one: GitHubRefused), Queue.request(REVIEW)
@@ -436,15 +441,20 @@ ApproveMerge ==
     /\ apc = "checked" /\ apc' = "idle"
     /\ LET i == Newest
            p == vpull[i]
-       IN IF i = 0 \/ prs[p] = "closed"
-          THEN UNCHANGED <<runs, prs, mseq, badMerge>>
-          ELSE /\ IF prs[p] = "open"
-                  THEN /\ prs' = [prs EXCEPT ![p] = "merged"] /\ mseq' = [mseq EXCEPT ![p] = Merges + 1]
-                       /\ badMerge' = (badMerge \/ status[A] \in Active)
-                  ELSE UNCHANGED <<prs, mseq, badMerge>>
-               /\ IF SlotFree(V) THEN Request(V) ELSE UNCHANGED <<status, pc>>
-               /\ UNCHANGED again
-    /\ UNCHANGED <<lease, agent, chat, vstate, vpull, current, runPull, source, flags>>
+           merge == ~(i = 0 \/ prs[p] = "closed")
+           check == merge /\ SlotFree(V)
+           \* ApproveLeased: after Leases.hold, Queue.wake (as Imports._propose) for a job that deferred on approve
+           wake == ApproveLeased /\ WokeA
+       IN /\ IF merge /\ prs[p] = "open"
+             THEN /\ prs' = [prs EXCEPT ![p] = "merged"] /\ mseq' = [mseq EXCEPT ![p] = Merges + 1]
+                  /\ badMerge' = (badMerge \/ pc[A] \in {"work", "turn"})
+             ELSE UNCHANGED <<prs, mseq, badMerge>>
+          /\ status' = [status EXCEPT ![V] = IF check THEN "queued" ELSE @, ![A] = IF wake THEN "queued" ELSE @]
+          /\ pc' = [pc EXCEPT ![V] = IF check THEN "queued" ELSE @,
+                              ![A] = IF wake /\ pc[A] \in Gone THEN "queued" ELSE @]
+          /\ again' = (again \/ (wake /\ pc[A] \notin Gone))
+    /\ IF ApproveLeased THEN holder' = None /\ lapsed' = FALSE ELSE UNCHANGED lease
+    /\ UNCHANGED <<agent, chat, vstate, vpull, current, runPull, source, flags>>
 
 \* a pull request merged or closed on GitHub
 GitHub(p) ==
@@ -480,7 +490,7 @@ Fairness ==
     /\ WF_vars(Check) /\ WF_vars(Owed) /\ WF_vars(TurnStart) /\ WF_vars(AgentEnds)
     /\ WF_vars(Crawl) /\ WF_vars(Review) /\ WF_vars(ImportPropose) /\ WF_vars(TrialEnd)
     /\ SF_vars(RefreshReady) /\ SF_vars(StrandedWake) /\ SF_vars(ReviewPending) /\ WF_vars(StartHeal)
-    /\ WF_vars(Lapse)
+    /\ WF_vars(Lapse) /\ (ApproveLeased => WF_vars(ApproveMerge))
 LiveSpec == Spec /\ Fairness
 
 \* ---------------------------------------------------------------- properties
@@ -496,7 +506,9 @@ ReopensBounded == autoReopens <= sent
 NoSpin == ~spin
 \* The version the source runs was merged no earlier than any other registered version: no rollback.
 NoRollback == Live => \A i \in Versions : vstate[i] = "merged" => mseq[vpull[i]] <= mseq[vpull[current]]
-\* Approving never merges while an agent job is active on the source.
+\* Approving never merges while an agent job has claimed the source and prepared its workspace (Workspaces.prepare
+\* decided the branch has not landed, so its next push reopens a pull request that conflicts with the squash merge).
+\* A job merely queued or deferred is harmless: it prepares after the merge and moves onto main (Clones.landed).
 NoMergeWhileAgent == ~badMerge
 
 \* Every message a person sends is eventually read by an agent turn, unless the run failed.
@@ -512,9 +524,10 @@ KeepsCrawling == <>[](Live /\ st /= "needs_human") => []<>crawled
 
 \* Vacuity guards: each must be violated, proving the situation is reachable.
 NotDeferred == status[A] /= "deferred"
-NotStranded == ~(status[A] = "deferred" /\ holder /= None /\ pc[holder] = "dead")
+NotStranded == ~(status[A] = "deferred" /\ holder \in Runs /\ pc[holder] = "dead")
 NotAutoReopened == autoReopens = 0
 NotRegistered == current = 0
 NotLiveRework == ~(Live /\ pc[A] = "turn" /\ kind = "onboard")
 NotTwoProposed == Cardinality(Proposed) < 2
+NotApproveWhileQueued == ~(apc = "checked" /\ status[A] = "queued")
 ====

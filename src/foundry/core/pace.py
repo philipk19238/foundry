@@ -32,6 +32,15 @@ class Pace:
         self._next: defaultdict[str, float] = defaultdict(float)
         self._spacing: defaultdict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
         self._stats = stats
+        self._hurrying = False
+
+    def hurry(self) -> None:
+        """The crawl is stopping: stop waiting, so the requests under way finish and the crawl closes in seconds."""
+        self._hurrying = True
+
+    @property
+    def hurrying(self) -> bool:
+        return self._hurrying
 
     @contextlib.asynccontextmanager
     async def turn(self, site: str) -> AsyncGenerator[None, None]:
@@ -39,7 +48,8 @@ class Pace:
         async with self._turns[site]:
             async with self._spacing[site]:
                 loop = asyncio.get_running_loop()
-                await asyncio.sleep(max(0.0, self._next[site] - loop.time()))
+                if not self._hurrying:
+                    await asyncio.sleep(max(0.0, self._next[site] - loop.time()))
                 self._next[site] = loop.time() + self._delays[site]
             yield
 
@@ -49,7 +59,7 @@ class Pace:
 
     def limited(self, site: str, retry_after: float | None) -> float:
         """Slows `site` down after a rate limit; returns the seconds to wait before sending again."""
-        slower = min(SLOWEST, max(self._delays[site] * 2 or FIRST_SLOWDOWN, retry_after or 0.0))
+        slower = min(SLOWEST, max(self._delays[site] * 2, FIRST_SLOWDOWN, retry_after or 0.0))
         self._delays[site] = slower
         self._stats.inc_value(RATE_LIMITED)
         self._stats.max_value(SLOWED_TO, slower)
