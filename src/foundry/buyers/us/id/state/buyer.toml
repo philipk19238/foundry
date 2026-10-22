@@ -1,0 +1,9 @@
+name = "State of Idaho"
+jurisdiction = "Idaho"
+
+[[portals]]
+kind = "platform"
+name = "ipro"
+platform = "infor"
+tenant = "https://sms-idaho-prd.tam.inforgov.com/fsm/SupplyManagementSupplier/page/XiSupplyManagementSupplierPage?csk.SupplierGroup=LUMA"
+url = "https://sms-idaho-prd.tam.inforgov.com/fsm/SupplyManagementSupplier/page/XiSupplyManagementSupplierPage?csk.SupplierGroup=LUMA"
