@@ -17,7 +17,7 @@ from urllib.parse import urlsplit
 from playwright.async_api import Error as PlaywrightError
 from playwright.async_api import Page, Response, async_playwright
 
-from foundry.core.middlewares import FETCH, Fetched, Sent
+from foundry.core.middlewares import FETCH, TEXT, Fetched, Sent
 from foundry.core.models import Exchange, Fixture
 
 if TYPE_CHECKING:
@@ -25,7 +25,6 @@ if TYPE_CHECKING:
 
 SKIPPED = {"image", "font", "stylesheet", "media", "manifest", "texttrack"}
 BROWSER_HOSTS = (".kernel.sh",)
-TEXT = ("json", "text", "html", "xml", "javascript", "x-www-form-urlencoded")
 UNSENDABLE = {
     "cookie", "user-agent", "accept-encoding", "host", "content-length", "connection", "origin", "referer", "priority",
     "accept-language", "pragma", "cache-control",

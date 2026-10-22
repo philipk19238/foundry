@@ -95,18 +95,29 @@ class Health(BaseModel, frozen=True):
                 assert_never(crawl.verdict)
 
 
+class BronzeRecord(BaseModel, frozen=True):
+    """Where a live crawl's bronze is: `har`, the SHA-256 its HAR is kept under in the bucket, beside the bodies its
+    entries name by theirs, and how many responses it holds."""
+
+    har: str
+    entries: int
+
+
 class CrawlReport(BaseModel, frozen=True):
     """What a crawl found, and for a live one, the browser's cookies when it finished: the bot checks it passed,
-    kept as the source's session so the next crawl doesn't meet them again."""
+    kept as the source's session so the next crawl doesn't meet them again. `bronze` is everything the portal sent a
+    live crawl; a replay has none."""
 
     listings: tuple[Listing, ...]
     crawl: Crawl
     session: Session | None = None
     files: dict[str, SavedFile] = {}
+    bronze: BronzeRecord | None = None
 
-    def from_browser(self, session: Session, files: dict[str, SavedFile]) -> "CrawlReport":
-        """The report of a live crawl, with what its browser held at the end and the attachments it downloaded."""
-        return self.model_copy(update={"session": session, "files": files})
+    def from_browser(self, session: Session, files: dict[str, SavedFile], bronze: BronzeRecord) -> "CrawlReport":
+        """The report of a live crawl, with what its browser held at the end, the attachments it downloaded, and
+        everything the portal sent it."""
+        return self.model_copy(update={"session": session, "files": files, "bronze": bronze})
 
 
 class CrawlWatch(Protocol):
@@ -138,6 +149,7 @@ class RefreshReport(BaseModel, frozen=True):
     crawl: Crawl
     ingested: IngestCounts
     health: Health
+    bronze: BronzeRecord | None = None
 
     @property
     def summary(self) -> str:

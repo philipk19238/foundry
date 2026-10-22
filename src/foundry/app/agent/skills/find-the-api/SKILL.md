@@ -24,6 +24,8 @@ It logs every request every tab makes (new tabs too), with request and response 
 4. click one attachment's download.
 
 Stop with `kill %1` (or `pkill -f "foundry.core record"`). Keep `traffic.jsonl` and `traffic.log` out of commits.
+Record inside your clone, as above: when your run ends, foundry keeps every recording there (the recorder's `.jsonl`
+files, and any `.har`) on the run, so a person can open what you saw later.
 
 ## Read the recording
 

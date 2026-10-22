@@ -1,5 +1,6 @@
 """The kit's middlewares: the portal session on every request, requests sent from the stealth browser, replayed
-fixtures, errors counted instead of crashing the crawl, and start requests sent again when a crawl carries on."""
+fixtures, errors counted instead of crashing the crawl, and start requests sent again when a crawl carries on.
+`foundry.core.bronze` keeps everything the portal sent."""
 
 import asyncio
 import base64
@@ -38,6 +39,8 @@ from foundry.core.spider import (
 BLANK_PATH = "__foundry__"
 PAGE_SLACK = 10.0
 BLANK_PAGE = "<!doctype html><title>foundry</title>"
+TEXT = ("json", "text", "html", "xml", "javascript", "x-www-form-urlencoded")
+LATENCY = "download_latency"
 
 
 class SessionMiddleware:
@@ -125,7 +128,8 @@ class BrowserMiddleware:
     cookies. The response is what plain HTTP would have returned, so spiders and their fixtures don't change. A
     request the portal page may not fetch (another site without CORS) runs from a page on its own site. A bot check
     (`challenges.challenged`) is cleared only for a spider that asks to `solve`: the request is opened as a page,
-    watched until the check clears, and sent again. Otherwise it is counted and the request dropped."""
+    watched until the check clears, and sent again. Otherwise it is counted and the request dropped. How long each
+    request took, its pace included, goes in its `download_latency`, as Scrapy's own downloads report it."""
 
     def __init__(self, crawler: Crawler, cdp_url: str, home: str, session: Session | None) -> None:
         assert crawler.stats is not None
@@ -165,6 +169,7 @@ class BrowserMiddleware:
     async def process_request(self, request: Request) -> Response | None:
         if request.meta.get(PLAIN):
             return None
+        began = asyncio.get_running_loop().time()
         sent = Sent(
             url=request.url,
             method=request.method,
@@ -191,6 +196,7 @@ class BrowserMiddleware:
         headers = Headers([(key, value) for key, value in got["headers"] if key.lower() not in DROPPED])
         body = base64.b64decode(got["body"])
         kind = responsetypes.from_args(headers=headers, url=got["url"], body=body)
+        request.meta[LATENCY] = asyncio.get_running_loop().time() - began
         return kind(url=got["url"], status=got["status"], headers=headers, body=body, request=request)
 
     async def _paced(self, sent: Sent, at: str, solve: bool) -> Fetched:

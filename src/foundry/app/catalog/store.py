@@ -66,6 +66,7 @@ _OPPORTUNITIES = (
 )
 _FILES = select(File).where(File.notice_id.in_(bindparam("notices", expanding=True)))
 _FILE = select(File).where(File.notice_id == bindparam("notice"), File.file_id == bindparam("file"))
+_RUN_OF = select(Notice.run_id).where(Notice.notice_id == bindparam("notice"))
 _STORED = (
     select(File)
     .join(Notice, Notice.notice_id == File.notice_id)
@@ -118,6 +119,7 @@ async def add_notices(
     notices: Sequence[models.ScrapedNotice],
     files: Mapping[str, Sequence[models.StoredFile]],
     seen_at: dt.datetime,
+    run_id: uuid.UUID,
 ) -> None:
     rows = [
         {
@@ -132,6 +134,7 @@ async def add_notices(
             "description": notice.listing.description,
             "metadata_": notice.listing.metadata,
             "first_seen_at": seen_at,
+            "run_id": run_id,
         }
         for notice in notices
     ]
@@ -152,6 +155,10 @@ async def stored(session: AsyncSession, source_id: uuid.UUID) -> Sequence[File]:
 
 async def file(session: AsyncSession, notice_id: str, file_id: str) -> File | None:
     return await session.scalar(_FILE, {"notice": notice_id, "file": file_id})
+
+
+async def run_of(session: AsyncSession, notice_id: str) -> uuid.UUID | None:
+    return await session.scalar(_RUN_OF, {"notice": notice_id})
 
 
 async def notices(session: AsyncSession, source_id: uuid.UUID, limit: int) -> list[models.NoticeView]:
@@ -191,6 +198,7 @@ async def _with_files(session: AsyncSession, rows: list[tuple[Notice, str | None
             description=notice.description,
             metadata=notice.metadata_,
             first_seen_at=notice.first_seen_at,
+            run_id=notice.run_id,
             files=files.get(notice.notice_id, []),
         )
         for notice, buyer in rows

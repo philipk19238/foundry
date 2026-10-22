@@ -187,7 +187,8 @@ class CrawlJob(BaseModel, frozen=True):
     starting at the portal's page, `home`. Given `files`, it downloads every attachment it finds into that folder as
     it goes, except those at `known_files` URLs; given `progress`, it writes how far it has got there every few
     seconds. Given `state`, a folder that outlives the process, it keeps the requests still to send and those already
-    sent there (Scrapy's JOBDIR), so the same job run again carries on where a killed one stopped."""
+    sent there (Scrapy's JOBDIR), so the same job run again carries on where a killed one stopped. Given `bronze`, it
+    keeps everything the portal sent there, as HAR entries and the bodies they point to."""
 
     spider: Path
     arguments: dict[str, str]
@@ -203,6 +204,7 @@ class CrawlJob(BaseModel, frozen=True):
     known_files: list[str] = []
     progress: Path | None = None
     state: Path | None = None
+    bronze: Path | None = None
 
 
 class CrawlStats(BaseModel, frozen=True):

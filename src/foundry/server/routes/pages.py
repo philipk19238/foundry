@@ -8,8 +8,10 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response, Streamin
 from fastapi.templating import Jinja2Templates
 from pydantic import BeforeValidator
 
+from foundry.app import exceptions
 from foundry.app.auth.auth import Logins
 from foundry.app.auth.models import UserView
+from foundry.app.bronze.bronze import Bronze
 from foundry.app.catalog.catalog import OPPORTUNITY_PAGE, Catalog, Opportunities
 from foundry.app.db.db import now
 from foundry.app.db.models.runs import RunKind
@@ -102,6 +104,24 @@ async def crawl_progress(request: Request, run_id: uuid.UUID, services: SignedIn
     templates, user, runs = await services.aget(Jinja2Templates, UserView, RunHistory)
     context = {"user": user, "run": await runs.run(run_id), "poll": True}
     return templates.TemplateResponse(request, "_crawl_progress.html", context)
+
+
+@router.get("/runs/{run_id}/bronze")
+async def bronze(run_id: uuid.UUID, services: SignedIn) -> Response:
+    """What the portal sent the run's crawl, as a HAR from the bucket."""
+    link = await (await services.aget(Bronze)).har(run_id)
+    if link is None:
+        raise exceptions.NoBronze(f"run {run_id}")
+    return RedirectResponse(link.url, status_code=status.HTTP_307_TEMPORARY_REDIRECT)
+
+
+@router.get("/runs/{run_id}/recordings/{sha256}")
+async def recording(run_id: uuid.UUID, sha256: str, services: SignedIn) -> Response:
+    """A browser recording the run's agent made, from the bucket."""
+    link = await (await services.aget(Bronze)).recording(run_id, sha256)
+    if link is None:
+        raise exceptions.RecordingNotFound(run_id, sha256)
+    return RedirectResponse(link.url, status_code=status.HTTP_307_TEMPORARY_REDIRECT)
 
 
 @router.post("/runs/{run_id}/restart")

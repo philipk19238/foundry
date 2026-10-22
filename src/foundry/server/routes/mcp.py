@@ -21,6 +21,8 @@ from mcp.server.transport_security import TransportSecuritySettings
 from foundry.app import exceptions
 from foundry.app.app import Imports, Reviews
 from foundry.app.auth.models import UserView
+from foundry.app.bronze.bronze import Bronze
+from foundry.app.bronze.models import BronzeLink, RecordingLink
 from foundry.app.catalog.catalog import Catalog, Opportunities
 from foundry.app.catalog.models import OpportunityRow
 from foundry.app.db.models.runs import RunKind
@@ -55,7 +57,9 @@ server = MCPServer(
         "(build, repair, sign in) have an agent you can talk to; scrapes run code only. Follow a job with "
         "wait_for_run and stop once its status is succeeded, failed or skipped. Clients that can listen: read "
         "foundry://runs/{run_id}/chat, then subscriptions/listen to it and to foundry://runs/{run_id}, and read "
-        "again on each update; foundry://questions changes when an agent asks or a question is answered."
+        "again on each update; foundry://questions changes when an agent asks or a question is answered. "
+        "Everything a portal sent a scrape is kept as bronze: get_bronze links its HAR, get_recordings what an "
+        "agent recorded."
     ),
 )
 
@@ -245,6 +249,24 @@ async def get_file_link(notice_id: str, file_id: str) -> str:
     opportunities, bucket = await services().aget(Opportunities, Bucket)
     file = await opportunities.file(notice_id, file_id)
     return file.url if file.sha256 is None else await bucket.link(file.sha256, file.name)
+
+
+@tool
+async def get_bronze(run_id: uuid.UUID) -> BronzeLink:
+    """Everything the portal sent a scrape (refresh or test scrape), as a short-lived link to a HAR 1.2 file, which
+    any HAR viewer opens: every response but the attachments, with what signs in to the portal hidden. A saved
+    opportunity's `run_id` names the scrape that stored it."""
+    link = await (await services().aget(Bronze)).har(run_id)
+    if link is None:
+        raise exceptions.NoBronze(f"run {run_id}")
+    return link
+
+
+@tool
+async def get_recordings(run_id: uuid.UUID) -> list[RecordingLink]:
+    """The browser recordings an agent job made while finding the portal's API (the recorder's JSON lines, or HAR),
+    each with a short-lived link, with what signs in to the portal hidden."""
+    return await (await services().aget(Bronze)).recordings(run_id)
 
 
 @tool

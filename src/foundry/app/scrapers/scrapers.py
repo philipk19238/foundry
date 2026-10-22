@@ -1,5 +1,6 @@
 import asyncio
 import datetime as dt
+import hashlib
 import shutil
 import sys
 import tempfile
@@ -18,8 +19,18 @@ from foundry.app.db.db import Sessionmaker, now
 from foundry.app.db.models.catalog import SourceStatus
 from foundry.app.files.models import Bucket
 from foundry.app.scrapers import store
-from foundry.app.scrapers.models.crawl import FIXTURES, Crawl, CrawlReport, CrawlState, CrawlWatch, Health, Verdict
+from foundry.app.scrapers.models.crawl import (
+    FIXTURES,
+    BronzeRecord,
+    Crawl,
+    CrawlReport,
+    CrawlState,
+    CrawlWatch,
+    Health,
+    Verdict,
+)
 from foundry.app.scrapers.models.version import Proposal, ScraperVersion, ScraperView, Standing
+from foundry.core.har import Har, HarEntry, HarLog
 from foundry.core.models import Access, CrawlJob, CrawlProgress, CrawlStats, Listing, SavedFile, Site
 from foundry.core.sites import Sites
 
@@ -29,6 +40,7 @@ KEEP_SECONDS = 60
 STOP_SECONDS = 60
 KIT = str(Path(foundry.__file__).parents[1])
 STDERR_TAIL = 2000
+HAR_TYPE = "application/json"
 
 
 class Versions:
@@ -121,15 +133,18 @@ class Crawls:
         watch: CrawlWatch, known: Mapping[str, SavedFile],
     ) -> CrawlReport:  # fmt: skip
         """A crawl of the live portal, always from a stealth browser on a residential address, which gets past most
-        bot checks. It downloads every attachment not in `known` as it goes and uploads it to the bucket at once, and
-        keeps its state in the run's folder, so a crawl whose worker died, that stalled, or that a person restarted
-        carries on where it got to. One that sends no new request for its site's `stall` minutes is stopped."""
+        bot checks. It downloads every attachment not in `known` as it goes and uploads it to the bucket at once, keeps
+        everything the portal sent as bronze (uploaded the same way, and a HAR of it at the end), and keeps its state
+        in the run's folder, so a crawl whose worker died, that stalled, or that a person restarted carries on where
+        it got to. One that sends no new request for its site's `stall` minutes is stopped."""
         site = self.site(tree, key)
         root = self._state.folder(watch.run_id)
         folder = self._taken_over(root, watch.attempt)
         (folder / "files").mkdir(parents=True, exist_ok=True)
+        (folder / "bronze").mkdir(exist_ok=True)
         (folder / "stats.json").unlink(missing_ok=True)
         uploads = Uploads(self._bucket, folder / "files")
+        bronze = BronzeUploads(self._bucket, folder / "bronze")
         async with self._browsers.bare(source_id) as browser:
             job = CrawlJob(
                 spider=site.spider,
@@ -145,16 +160,19 @@ class Crawls:
                 known_files=sorted(known),
                 progress=folder / "progress.json",
                 state=folder / "scrapy",
+                bronze=folder / "bronze",
             )
             stall = dt.timedelta(minutes=site.stall)
-            returncode = await self._watched(tree, job, folder / "stderr.log", watch, uploads, stall)
+            returncode = await self._watched(tree, job, folder / "stderr.log", watch, uploads, bronze, stall)
             headers = access.session.headers if access.session is not None else {}
             session = await self._browsers.session(browser, headers)
         await uploads.upload_new()
+        await bronze.upload_new()
+        record = await bronze.har()
         report = self._report(job, returncode, folder / "stderr.log", previous_valid)
         await asyncio.to_thread(shutil.rmtree, root, ignore_errors=True)
         await self._state.keep()
-        return report.from_browser(session, uploads.saved)
+        return report.from_browser(session, uploads.saved, record)
 
     def _taken_over(self, root: Path, attempt: int) -> Path:
         """This attempt's folder, holding the newest earlier attempt's state: renamed, not shared, so a worker that
@@ -207,8 +225,9 @@ class Crawls:
         )  # fmt: skip
 
     async def _watched(
-        self, tree: Path, job: CrawlJob, log: Path, watch: CrawlWatch, uploads: "Uploads", stall: dt.timedelta
-    ) -> int | None:
+        self, tree: Path, job: CrawlJob, log: Path, watch: CrawlWatch, uploads: "Uploads", bronze: "BronzeUploads",
+        stall: dt.timedelta,
+    ) -> int | None:  # fmt: skip
         """Runs the crawl, and every POLL_SECONDS uploads what it saved and beats the run with its progress; every
         KEEP_SECONDS, keeps its state. Stops it when the run says so, or when it sent no request for `stall`: SIGTERM,
         so it finishes what it has under way and saves its queue, then a kill after STOP_SECONDS."""
@@ -227,6 +246,7 @@ class Crawls:
                     except TimeoutError:
                         pass
                     await uploads.upload_new()
+                    await bronze.upload_new()
                     if job.progress.exists():
                         progress = CrawlProgress.model_validate_json(job.progress.read_text())
                         if progress.requests != requests:
@@ -287,6 +307,55 @@ class Uploads:
                 self._put.add(saved.sha256)
             content.unlink(missing_ok=True)
             cursor.write_text(str(number + 1))
+
+
+class BronzeUploads:
+    """Everything the portal sent a crawl, as the crawl wrote it to its bronze folder: each response's body, uploaded
+    to the bucket under its SHA-256 as it appears (each distinct body once) and then deleted, and at the end the HAR
+    of every response, put beside them. `uploaded` in the folder is how far into `entries.jsonl` the bodies are done,
+    in bytes, so a crawl carried on by another worker doesn't upload them again."""
+
+    def __init__(self, bucket: Bucket, folder: Path) -> None:
+        self._bucket = bucket
+        self._folder = folder
+        self._put: set[str] = set()
+
+    async def upload_new(self) -> None:
+        log = self._folder / "entries.jsonl"
+        cursor = self._folder / "uploaded"
+        done = int(cursor.read_text()) if cursor.exists() else 0
+        if not log.exists():
+            return
+        written = await asyncio.to_thread(self.since, log, done)
+        for line in written.split(b"\n")[:-1]:
+            content = HarEntry.model_validate_json(line).response.content
+            body = self._folder / content.sha256
+            if body.exists() and content.sha256 not in self._put:
+                await self._bucket.put(content.sha256, await asyncio.to_thread(body.read_bytes), content.mime_type)
+                self._put.add(content.sha256)
+            body.unlink(missing_ok=True)
+            done += len(line) + 1
+            cursor.write_text(str(done))
+
+    @staticmethod
+    def since(log: Path, done: int) -> bytes:
+        with log.open("rb") as entries:
+            entries.seek(done)
+            return entries.read()
+
+    async def har(self) -> BronzeRecord:
+        """The HAR of every response the crawl got, put in the bucket under the SHA-256 of its bytes."""
+        har = await asyncio.to_thread(self.read)
+        document = (await asyncio.to_thread(har.model_dump_json, exclude_none=True)).encode()
+        digest = hashlib.sha256(document).hexdigest()
+        await self._bucket.put(digest, document, HAR_TYPE)
+        return BronzeRecord(har=digest, entries=len(har.log.entries))
+
+    def read(self) -> Har:
+        """The crawl's entries so far, as one HAR document."""
+        log = self._folder / "entries.jsonl"
+        lines = log.read_bytes().split(b"\n")[:-1] if log.exists() else []
+        return Har(log=HarLog(entries=tuple(HarEntry.model_validate_json(line) for line in lines)))
 
 
 class CrawlFolders:

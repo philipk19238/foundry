@@ -89,6 +89,7 @@ src/foundry/
     browser/        Kernel browsers, portal accounts and sessions
     repo/           this repo on GitHub: the mirror, run clones and branches, pull requests
     scrapers/       versions (proposed, merged), crawls (own process, from a tree of the repo), downloads, health
+    bronze/         where what a portal sent is kept: each crawl's HAR, each agent run's browser recordings
     agent/          Codex in a Kernel browser; tools.py is its MCP server; prompts/
   server/           FastAPI: routes/{auth,pages,api}.py, templates/, static/
   worker/           worker.py (dispatchers, the deployer, boot check), functions.py (the Modal app)
@@ -98,6 +99,20 @@ formal/             Lean (foundry_rules/), TLA+ (runs/), logic.html (the rules a
 The data schema is four tables: `sources`, `buyers`, `notices` (`notice_id` and `opportunity_id` are SHA-256 hashes
 of the content; `metadata` is JSON/JSONB) and `files`, plus `scrapers` (each version and its pull request) and the
 app's own (`users`, `runs`, `events`, `help`).
+
+## Bronze, silver and gold
+
+Foundry keeps what it scrapes at three levels. **Bronze** is everything the portal sent: every response of a live
+crawl (attachments aside, which are kept as files), kept as a HAR 1.2 document that any HAR viewer opens, with each
+body in the bucket under its SHA-256 and text bodies up to 256 KiB inline in the HAR too. What signs in is left out: the
+request's `Cookie` and `Authorization` headers and the response's `Set-Cookie` are dropped, and the session's values
+and the portal's saved credentials are hidden wherever else they show. An agent's run keeps the browser recordings it
+made while finding the portal's API the same way, its password hidden too. **Silver** is the listings the scraper made of it:
+the `notices` and `files` tables, each notice naming the crawl that stored it (`run_id`), so its bronze is one step
+away. **Gold** is what people read: each opportunity as its newest snapshot, with how often the portal edited it.
+`GET /api/runs/{run_id}/bronze` and `GET /api/notices/{notice_id}/bronze` return a short-lived link to the HAR,
+`GET /api/runs/{run_id}/recordings` links to an agent's recordings, and a notice on the Opportunities page and the
+latest test scrape link to "What the portal sent". Over MCP, `get_bronze` and `get_recordings` return the same links.
 
 ## Adding a buyer or portal
 
