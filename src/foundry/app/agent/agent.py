@@ -373,7 +373,7 @@ class Agent:
             outcome = await self._proposals.propose(lease, workspace.checkout, submission)
             workspace.submissions.forget()
             return outcome
-        if isinstance(task, tasks.Relogin):
+        if isinstance(task, tasks.Relogin) and start != handoff.Start.REOPENED:
             return outcomes.FreshSession()
         if start != handoff.Start.FRESH:
             return outcomes.Reply()
