@@ -19,7 +19,8 @@ from foundry.core.models import FileLink, Listing
 from foundry.core.spider import PortalSpider
 
 HOME = "https://caleprocure.ca.gov/pages/Events-BS3/event-search.aspx"
-BASE = "https://caleprocure.ca.gov/psc/psfpd1/SUPPLIER/ERP/c/"
+# Use the PeopleSoft origin named by the public proxy for this same event list.
+BASE = "https://suppliers.fiscal.ca.gov/psc/psfpd1/SUPPLIER/ERP/c/"
 SEARCH = BASE + "AUC_MANAGE_BIDS.AUC_RESP_INQ_AUC.GBL"
 DETAIL = BASE + "AUC_MANAGE_BIDS.AUC_RESP_INQ_DTL.GBL"
 LOCAL = ZoneInfo("America/Los_Angeles")
@@ -61,10 +62,10 @@ class Spider(PortalSpider):
     start_urls = [HOME]
     custom_settings = {
         **PortalSpider.custom_settings,
-        "CONCURRENT_REQUESTS": 2,
-        "CONCURRENT_REQUESTS_PER_DOMAIN": 2,
-        "DOWNLOAD_DELAY": 0.25,
-        "AUTOTHROTTLE_START_DELAY": 0.25,
+        "CONCURRENT_REQUESTS": 1,
+        "CONCURRENT_REQUESTS_PER_DOMAIN": 1,
+        "DOWNLOAD_DELAY": 0.5,
+        "AUTOTHROTTLE_START_DELAY": 0.5,
         "AUTOTHROTTLE_TARGET_CONCURRENCY": 1,
     }
 
@@ -100,8 +101,14 @@ class Spider(PortalSpider):
             return
         if len(self.events) != int(total[1].replace(",", "")):
             raise ValueError(f"Search returned {len(self.events)} events but reports {total[1]}")
-        for window in (3, 4):
+        # Keep event chains sequential within the guest session.
+        for window in (3,):
             yield from self.next_event(window)
+
+    def file_request(self, link, listing):
+        # PeopleSoft's signed files need the guest cookies that resolved them.
+        request = super().file_request(link, listing)
+        return request.replace(meta={**request.meta, "browser": True})
 
     def logged_out(self, response):
         # PeopleSoft reports guest expiry as HTTP 200, including errorCode=127.
@@ -345,7 +352,7 @@ class Spider(PortalSpider):
                 yield from self.finish_event(state)
                 return
         else:
-            state["files"].append(FileLink(name=state["file_name"], url=match[1].replace("/view/", "/viewredirect/")))
+            state["files"].append(FileLink(name=state["file_name"], url=match[1]))
         yield from self.next_file(response, state)
 
     def finish_event(self, state):

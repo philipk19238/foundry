@@ -66,7 +66,7 @@ def run_event(replay, request):
 @pytest.mark.asyncio
 async def test_logout_fixture_renewal_rebuilds_each_affected_window(portal):
     spider, replay = portal
-    spider.events = deque([("2740", "26-134"), ("SS246", "0000040527")])
+    spider.events = deque([("2720", "0000040585"), ("SS246", "0000040527")])
     interrupted = queued(next(spider.next_event(3)))
     other = queued(next(spider.next_event(4)))
     captured = Fixture.model_validate(json.loads((SITE / "logout.json").read_text())[0])
@@ -94,7 +94,7 @@ async def test_logout_fixture_renewal_rebuilds_each_affected_window(portal):
     assert "psfpd1_4/" in other_reset.url
     other_restart = next(other_reset.callback(search.replace(url=other_reset.url), **other_reset.cb_kwargs))
     listings.extend(run_event(replay, other_restart))
-    assert {listing.external_id for listing in listings} == {"2740/26-134", "SS246/0000040527"}
+    assert {listing.external_id for listing in listings} == {"2720/0000040585", "SS246/0000040527"}
     # A stale refresh must never requeue completed events.
     assert spider.renewed(interrupted) is None
     assert spider.renewed(other) is None
@@ -178,7 +178,7 @@ def test_missing_first_link_still_resolves_the_next_attachment(portal):
 
 def test_both_windows_replay_complete_chains_from_pickled_requests(portal):
     spider, replay = portal
-    spider.events = deque([("2740", "26-134"), ("SS246", "0000040527")])
+    spider.events = deque([("2720", "0000040585"), ("SS246", "0000040527")])
     requests = [next(spider.next_event(window)) for window in (3, 4)]
     listings = []
     for request in requests:
@@ -187,7 +187,7 @@ def test_both_windows_replay_complete_chains_from_pickled_requests(portal):
         assert spider.current(restored.cb_kwargs["state"])
         assert spider.active[restored.cb_kwargs["state"]["window"]] == restored.cb_kwargs["state"]["token"]
         listings.extend(run_event(replay, restored))
-    assert {listing.external_id for listing in listings} == {"2740/26-134", "SS246/0000040527"}
+    assert {listing.external_id for listing in listings} == {"2720/0000040585", "SS246/0000040527"}
     assert sorted(len(listing.files) for listing in listings) == [1, 2]
     assert not spider.active
     assert len(spider.done) == 2
