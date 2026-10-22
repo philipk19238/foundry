@@ -2,6 +2,7 @@
 
 import importlib.util
 import json
+import pickle
 from collections import deque
 from pathlib import Path
 
@@ -12,6 +13,7 @@ from scrapy.exceptions import IgnoreRequest
 from scrapy.http import HtmlResponse
 from scrapy.settings import Settings
 from scrapy.statscollectors import MemoryStatsCollector
+from scrapy.utils.request import request_from_dict
 from twisted.python.failure import Failure
 
 from foundry.core.models import FileLink, Fixture, Listing
@@ -41,10 +43,17 @@ def failure(request, error):
     return result
 
 
+def queued(request):
+    """Serialize exactly the request data JOBDIR writes, including cb_kwargs."""
+    spider = request.callback.__self__
+    return request_from_dict(pickle.loads(pickle.dumps(request.to_dict(spider=spider))), spider=spider)
+
+
 def run_event(replay, request):
     """Replay a complete event, returning its listing and its window's next request."""
     output = []
     while request:
+        request = queued(request)
         response = replay.process_request(request)
         values = list(request.callback(response, **request.cb_kwargs))
         output.extend(value for value in values if isinstance(value, Listing))
@@ -56,8 +65,8 @@ def run_event(replay, request):
 def test_logout_fixture_renewal_rebuilds_each_affected_window(portal):
     spider, replay = portal
     spider.events = deque([("2740", "26-134"), ("SS246", "0000040527")])
-    interrupted = next(spider.next_event(3))
-    other = next(spider.next_event(4))
+    interrupted = queued(next(spider.next_event(3)))
+    other = queued(next(spider.next_event(4)))
     captured = Fixture.model_validate(json.loads((SITE / "logout.json").read_text())[0])
     response = HtmlResponse(url=captured.url, body=captured.body, encoding="utf8", request=interrupted)
     assert spider.logged_out(response)
@@ -94,7 +103,7 @@ def test_logout_fixture_renewal_rebuilds_each_affected_window(portal):
 def test_request_failure_keeps_window_moving_and_preserves_resolved_files(portal, phase):
     spider, replay = portal
     spider.events = deque([("broken", "event"), ("SS246", "0000040527")])
-    request = next(spider.next_event(4))
+    request = queued(next(spider.next_event(4)))
     state = request.cb_kwargs["state"]
     if phase != "detail":
         state["current"] = {
@@ -107,6 +116,7 @@ def test_request_failure_keeps_window_moving_and_preserves_resolved_files(portal
         response = HtmlResponse(url=request.url, body=b'<input type="hidden" name="ICStateNum" value="2">')
         callback = spider.parse_package if phase == "package" else spider.parse_file
         request = spider.action(response, "failed-action", callback, state)
+    request = queued(request)
     assert request.errback is not None
     result = list(request.errback(failure(request, OSError("connection lost"))))
     partial = [value for value in result if isinstance(value, Listing)]
@@ -125,7 +135,7 @@ def test_request_failure_keeps_window_moving_and_preserves_resolved_files(portal
 def test_missing_title_skips_event_and_replays_the_next(portal):
     spider, replay = portal
     spider.events = deque([("broken", "event"), ("SS246", "0000040527")])
-    request = next(spider.next_event(4))
+    request = queued(next(spider.next_event(4)))
     response = HtmlResponse(url=request.url, body=b"<html>Event unavailable</html>")
     following = list(request.callback(response, **request.cb_kwargs))
     assert spider.crawler.stats.get_value("caleprocure/events_failed") == 1
@@ -162,3 +172,20 @@ def test_missing_first_link_still_resolves_the_next_attachment(portal):
     listing = run_event(replay, second)[0]
     assert [link.name for link in listing.files] == ["RFI__1_and_STD1000_Guest_Survey.pdf"]
     assert spider.crawler.stats.get_value("caleprocure/events_partial") == 1
+
+
+def test_both_windows_replay_complete_chains_from_pickled_requests(portal):
+    spider, replay = portal
+    spider.events = deque([("2740", "26-134"), ("SS246", "0000040527")])
+    requests = [next(spider.next_event(window)) for window in (3, 4)]
+    listings = []
+    for request in requests:
+        restored = queued(request)
+        assert restored.cb_kwargs["state"] is not request.cb_kwargs["state"]
+        assert spider.current(restored.cb_kwargs["state"])
+        assert spider.active[restored.cb_kwargs["state"]["window"]] == restored.cb_kwargs["state"]["token"]
+        listings.extend(run_event(replay, restored))
+    assert {listing.external_id for listing in listings} == {"2740/26-134", "SS246/0000040527"}
+    assert sorted(len(listing.files) for listing in listings) == [1, 2]
+    assert not spider.active
+    assert len(spider.done) == 2

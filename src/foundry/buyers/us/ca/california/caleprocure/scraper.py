@@ -117,7 +117,9 @@ class Spider(PortalSpider):
         )
 
     def current(self, state):
-        return state["epoch"] == self.window_epochs[state["window"]] and self.active.get(state["window"]) is state
+        return (
+            state["epoch"] == self.window_epochs[state["window"]] and self.active.get(state["window"]) == state["token"]
+        )
 
     def renewed(self, request):
         """A new guest session loses PeopleSoft state: reopen the affected window."""
@@ -191,12 +193,15 @@ class Spider(PortalSpider):
                 "event_id": event_id,
                 "window": window,
                 "epoch": self.window_epochs[window],
+                "token": (window, self.window_epochs[window], unit, event_id),
                 "current": None,
                 "files": [],
                 "file_actions": deque(),
                 "package_pages": set(),
             }
-            self.active[window] = state
+            # JOBDIR unpickles cb_kwargs as a copy: ownership must use a value.
+            # All mutable event progress travels in the next request's cb_kwargs.
+            self.active[window] = state["token"]
             query = urlencode(
                 {
                     "Page": "AUC_RESP_INQ_DTL",

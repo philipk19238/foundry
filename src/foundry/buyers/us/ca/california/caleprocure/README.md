@@ -90,3 +90,14 @@ The run ended **FAIL, logged out True** at
 implementation, so it cannot call the new hook yet. Renewal is covered by the
 captured logout regression and the corrected `renewed(request)` contract, but
 a live PASS through guest renewal still requires that kit update.
+
+## Disk queue state
+
+Scrapy JOBDIR pickles each queued request, so callback state arrives as a copy.
+Window ownership is the value `(window, epoch, unit, event_id)`, stored in both
+`state["token"]` and `self.active[window]`. The spider retains only this immutable
+token, never the mutable callback state. Each callback passes its accumulated
+listing, file links, pending file actions and pagination history to the next
+request in `cb_kwargs`. Regression replay pickles/restores every request, including
+both complete sample chains, and exercises copied state in failure and renewal
+paths. All eight regression tests pass before the rebase/live check.
