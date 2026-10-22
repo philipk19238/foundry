@@ -58,9 +58,9 @@ reads it as `self.credentials["<name>"]`. Call `credentials` to see what is alre
 spider's code, its fixtures or the pull request. A CSRF token that changes with every page is not a credential: read
 it from the page in the spider.
 
-Bot checks are foundry's to get past, not a reason to sign in. Every live crawl runs from a stealth browser on a US
-residential address: each request is sent as a `fetch` from a page on the portal, so the spider gets the same
-responses as plain HTTP and needs no browser code. `fetch` drops the `Cookie`, `User-Agent` and
+Bot checks are no reason to sign in. Every live crawl runs from a stealth browser on a US residential address: each
+request is sent as a `fetch` from a page on the portal, so the spider gets the same responses as plain HTTP and needs
+no browser code. A firewall challenge is answered by opening the request as a page and sending it again. `fetch` drops the `Cookie`, `User-Agent` and
 `Referer` headers a spider sets, and the page sends its own.
 
 ## What you deliver
@@ -87,9 +87,15 @@ responses as plain HTTP and needs no browser code. `fetch` drops the `Cookie`, `
 4. Call `check_scraper` with the site key. It replays the fixtures through the spider and reports what it yields.
    Fix and repeat until it reports `healthy` with listings that look right. A healthy replay shows the spider parses;
    it doesn't show it finds everything, which the next step checks.
-5. Before you submit, check the scraper against the portal itself: compare the count with what the page lists, and
-   open two listings to confirm their titles, due dates (against the time the page shows) and files.
-6. Call `submit`. Its fields fill the pull request's template, so a reviewer can merge without opening the portal:
+5. Crawl the live portal the way foundry will, from your browser:
+   `{python} -m foundry.core live <site key> --browser "{cdp_url}"`. It runs the whole crawl and prints `PASS` or
+   `FAIL`, the counts, and each error with the status the portal answered. Making it pass is your job, not a
+   person's: a 429, a challenge (status 202) or empty bodies mean the spider is too fast for the portal, so slow it
+   in its `custom_settings` (`DOWNLOAD_DELAY`, `CONCURRENT_REQUESTS_PER_DOMAIN`, `RETRY_HTTP_CODES`) or change how
+   it pages; other errors mean the spider is wrong. Repeat until it passes.
+6. Check the scraper against the portal itself: compare the count with what the page lists, and open two listings
+   to confirm their titles, due dates (against the time the page shows) and files.
+7. Call `submit`. Its fields fill the pull request's template, so a reviewer can merge without opening the portal:
    what the scraper reads, whether it uses the API, the HTML or a browser, how it gets access, the steps that found
    the data (each endpoint or page), what you checked against the portal, and what it can't get yet. Then end your
    turn. Foundry adds the replay, a live staging crawl, sample listings and how to test it, and opens the pull

@@ -4,15 +4,17 @@ every portal, so a spider holds only what is particular to its site or platform.
 
 import asyncio
 import base64
+import contextlib
 from collections.abc import Iterable, Iterator
 from pathlib import Path
 from types import ModuleType
-from typing import TextIO
+from typing import TextIO, TypedDict
 from urllib.parse import urlsplit
 
 import scrapy
 from playwright.async_api import Browser, Page, Playwright, async_playwright
 from playwright.async_api import Error as PlaywrightError
+from playwright.async_api import TimeoutError as PlaywrightTimeout
 from pydantic import ValidationError
 from scrapy import signals
 from scrapy.crawler import Crawler
@@ -107,13 +109,36 @@ FETCH = """async ({url, method, headers, body}) => {
   return {url: response.url, status: response.status, headers: [...response.headers], body: btoa(binary)};
 }"""
 DROPPED = {"content-encoding", "content-length", "transfer-encoding"}
+CHALLENGES = {("x-amzn-waf-action", "challenge"), ("cf-mitigated", "challenge")}
+CHALLENGE_TRIES = 3
+SOLVED_FOR = 5.0
+
+
+class Sent(TypedDict):
+    """A request as the browser's `fetch` sends it; `body` is base64."""
+
+    url: str
+    method: str
+    headers: dict[str, str]
+    body: str | None
+
+
+class Fetched(TypedDict):
+    """What the browser's `fetch` got back; `body` is base64."""
+
+    url: str
+    status: int
+    headers: list[tuple[str, str]]
+    body: str
 
 
 class BrowserMiddleware:
     """Sends every request from inside a stealth browser, when the crawl was given one: a page on the portal passes
     its bot checks once, then each request runs as that page's `fetch`, with the browser's address, fingerprint and
     cookies. The response is what plain HTTP would have returned, so spiders and their fixtures don't change. A
-    request the portal page may not fetch (another site without CORS) runs from a page on its own site."""
+    request the portal page may not fetch (another site without CORS) runs from a page on its own site. A firewall
+    that challenges a request mid-crawl (AWS WAF, Cloudflare) is answered the way a browser answers it: the request
+    is opened as a page, whose script earns the token, and sent again."""
 
     def __init__(self, cdp_url: str, home: str, session: Session | None) -> None:
         self._cdp_url = cdp_url
@@ -123,6 +148,8 @@ class BrowserMiddleware:
         self._browser: Browser | None = None
         self._pages: dict[str, Page] = {}
         self._lock = asyncio.Lock()
+        self._solving = asyncio.Lock()
+        self._solved_at = 0.0
 
     @classmethod
     def from_crawler(cls, crawler: Crawler) -> "BrowserMiddleware":
@@ -137,21 +164,42 @@ class BrowserMiddleware:
         return middleware
 
     async def process_request(self, request: Request) -> Response:
-        sent = {
-            "url": request.url,
-            "method": request.method,
-            "headers": {key: value for key, value in request.headers.to_unicode_dict().items()
-                        if key.lower() not in {"cookie", "user-agent", "accept-encoding"}},
-            "body": base64.b64encode(request.body).decode() if request.body else None,
-        }  # fmt: skip
-        try:
-            got = await (await self._page(self._home)).evaluate(FETCH, sent)
-        except PlaywrightError:
-            got = await (await self._page(request.url)).evaluate(FETCH, sent)
+        sent = Sent(
+            url=request.url,
+            method=request.method,
+            headers={str(key): value for key, value in request.headers.to_unicode_dict().items()
+                     if str(key).lower() not in {"cookie", "user-agent", "accept-encoding"}},
+            body=base64.b64encode(request.body).decode() if request.body else None,
+        )  # fmt: skip
+        got = await self._fetch(self._home, sent)
+        for _ in range(CHALLENGE_TRIES):
+            if not CHALLENGES & {(key.lower(), value.lower()) for key, value in got["headers"]}:
+                break
+            await self._solve(request.url)
+            got = await self._fetch(request.url, sent)
         headers = Headers([(key, value) for key, value in got["headers"] if key.lower() not in DROPPED])
         body = base64.b64decode(got["body"])
         kind = responsetypes.from_args(headers=headers, url=got["url"], body=body)
         return kind(url=got["url"], status=got["status"], headers=headers, body=body, request=request)
+
+    async def _fetch(self, at: str, sent: Sent) -> Fetched:
+        """`sent` fetched from the page on `at`'s site, or from one on its own site if that page may not fetch it."""
+        try:
+            return await (await self._page(at)).evaluate(FETCH, sent)
+        except PlaywrightError:
+            return await (await self._page(sent["url"])).evaluate(FETCH, sent)
+
+    async def _solve(self, url: str) -> None:
+        """Opens a challenged `url` as a page, so the browser runs the challenge and keeps the token it earns. Requests
+        challenged together wait for one solve."""
+        async with self._solving:
+            if asyncio.get_running_loop().time() - self._solved_at < SOLVED_FOR:
+                return
+            page = await self._page(url)
+            await page.goto(url, wait_until="load")
+            with contextlib.suppress(PlaywrightTimeout):
+                await page.wait_for_load_state("networkidle", timeout=15_000)
+            self._solved_at = asyncio.get_running_loop().time()
 
     async def _page(self, url: str) -> Page:
         """The page fetches run from for `url`'s site, opened on first use and kept for the crawl."""
@@ -220,12 +268,12 @@ class ErrorsMiddleware:
     def process_spider_exception(self, response: Response, exception: Exception) -> Iterable[object] | None:
         if isinstance(exception, ValidationError):
             self._stats.inc_value(INVALID)
-            self._stats.set_value(f"{EXAMPLE}{self._stats.get_value(INVALID)}", f"{response.url}: {exception}"[:500])
+            example = f"{response.url} ({response.status}): {exception}"
+            self._stats.set_value(f"{EXAMPLE}{self._stats.get_value(INVALID)}", example[:500])
             return ()
         self._stats.inc_value(CRASHES)
-        self._stats.set_value(
-            f"{EXAMPLE}crash/{self._stats.get_value(CRASHES)}", f"{response.url}: {exception!r}"[:500]
-        )
+        example = f"{response.url} ({response.status}): {exception!r}"
+        self._stats.set_value(f"{EXAMPLE}crash/{self._stats.get_value(CRASHES)}", example[:500])
         return None
 
 
