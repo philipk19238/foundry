@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, TypeAdapter
 from foundry.app.catalog.models import IngestCounts
 from foundry.app.db.models.catalog import ScraperState, SourceStatus
 from foundry.app.db.models.runs import RunKind
-from foundry.core.models import CrawlJob, CrawlStats, Fixture, Listing
+from foundry.core.models import CrawlJob, CrawlStats, Fixture, Listing, Session
 
 MAX_HEALS = 3
 FIXTURES = TypeAdapter(list[Fixture])
@@ -77,6 +77,7 @@ class Crawl(BaseModel, frozen=True):
     previous_valid: int
     errors: tuple[str, ...] = ()
     refused: str = ""
+    challenged: int = 0
     signed_in: bool = True
     browser: bool = False
 
@@ -90,6 +91,7 @@ class Crawl(BaseModel, frozen=True):
             previous_valid=previous_valid,
             errors=stats.examples,
             refused=stats.refused,
+            challenged=stats.challenged,
             signed_in=job.session is not None,
             browser=job.browser is not None,
         )
@@ -97,11 +99,14 @@ class Crawl(BaseModel, frozen=True):
     @property
     def verdict(self) -> Verdict:
         """formal/foundry_rules `verdict`. A portal that turns away a scraper with no session isn't asking it to
-        sign in: it is blocking the scraper, which is the scraper's to fix. A scraper that used to find notices and
+        sign in: it is blocking the scraper, which is the scraper's to fix, as is a bot check that stopped requests
+        (the spider should `solve` it); no person is asked. A scraper that used to find notices and
         now finds none is broken, even with no error: that is what a portal redesign usually looks like."""
         if self.auth_failed and self.signed_in:
             return Verdict.RELOGIN
-        if self.auth_failed or self.crashed or self.invalid > 0 or (self.valid == 0 and self.previous_valid > 0):
+        if self.auth_failed or self.challenged or self.crashed or self.invalid > 0:
+            return Verdict.HEAL
+        if self.valid == 0 and self.previous_valid > 0:
             return Verdict.HEAL
         return Verdict.HEALTHY
 
@@ -127,8 +132,12 @@ class Health(BaseModel, frozen=True):
 
 
 class CrawlReport(BaseModel, frozen=True):
+    """What a crawl found, and for a live one, the browser's cookies when it finished: the bot checks it passed,
+    kept as the source's session so the next crawl doesn't meet them again."""
+
     listings: tuple[Listing, ...]
     crawl: Crawl
+    session: Session | None = None
 
 
 class RefreshReport(BaseModel, frozen=True):

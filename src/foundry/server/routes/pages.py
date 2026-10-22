@@ -48,11 +48,14 @@ async def opportunities(
     page: Annotated[int, Query(ge=0)] = 0,
 ) -> Response:
     """Every stored opportunity, newest snapshot of each, searchable by title or buyer and filtered by portal."""
-    templates, user, catalog, stored = await services.aget(Jinja2Templates, UserView, Catalog, Opportunities)
+    templates, user, catalog, stored, tracker = await services.aget(
+        Jinja2Templates, UserView, Catalog, Opportunities, Tracker
+    )
     context = {
         "user": user,
         "rows": await stored.opportunities(source, q, page),
         "sources": await catalog.sources(),
+        "stages": await tracker.stages(),
         "q": q,
         "source_id": source,
         "page": page,

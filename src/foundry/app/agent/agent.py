@@ -34,6 +34,7 @@ from foundry.app.repo.models import BRANCHES
 from foundry.app.repo.repo import CHECKOUT, Clones
 from foundry.app.runs.models import EventKind
 from foundry.app.runs.runs import Timeline
+from foundry.app.scrapers.scrapers import KIT
 from foundry.app.settings import Settings
 
 logger = logging.getLogger(__name__)
@@ -233,6 +234,9 @@ class Codex:
             "FOUNDRY_BROWSER": browser.cdp_url,
             "FOUNDRY_SKILLS": str(workspace.skills),
             "FOUNDRY_LEARNINGS": str(workspace.learnings),
+            "PYTHONPATH": KIT,
+            "XDG_STATE_HOME": str(workspace.folder / ".state"),
+            "XDG_CACHE_HOME": str(workspace.folder / ".cache"),
         }
         return "{" + ", ".join(f"{key}={json.dumps(value)}" for key, value in values.items()) + "}"
 

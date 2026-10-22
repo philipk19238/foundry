@@ -85,21 +85,25 @@ class Session(BaseModel, frozen=True):
 
 
 class PlatformPortal(BaseModel, frozen=True):
-    """A buyer's page on a shared platform: the platform's spider, pointed at this buyer's tenant."""
+    """A buyer's page on a shared platform: the platform's spider, pointed at this buyer's tenant. `delay` is the
+    seconds between requests the portal tolerates (0 leaves the spider's own pace)."""
 
     kind: Literal["platform"] = "platform"
     name: str
     platform: str
     tenant: str
     url: str
+    delay: float = 0
 
 
 class SitePortal(BaseModel, frozen=True):
-    """A buyer's own one-off site, with its spider in a folder of the same name beside `buyer.toml`."""
+    """A buyer's own one-off site, with its spider in a folder of the same name beside `buyer.toml`. `delay` is the
+    seconds between requests the portal tolerates (0 leaves the spider's own pace)."""
 
     kind: Literal["site"] = "site"
     name: str
     url: str
+    delay: float = 0
 
 
 Portal = Annotated[PlatformPortal | SitePortal, Field(discriminator="kind")]
@@ -122,6 +126,7 @@ class Site(BaseModel, frozen=True):
     spider: Path
     arguments: dict[str, str]
     fixtures: Path
+    delay: float = 0
 
 
 class Access(BaseModel, frozen=True):
@@ -146,6 +151,7 @@ class CrawlJob(BaseModel, frozen=True):
     fixtures: list[Fixture] | None = None
     browser: str | None = None
     home: str = ""
+    delay: float = 0
 
 
 class CrawlStats(BaseModel, frozen=True):
@@ -155,10 +161,13 @@ class CrawlStats(BaseModel, frozen=True):
     invalid: int = 0
     logged_out: bool = False
     refused: str = ""
+    challenged: int = 0
     crashes: int = 0
     examples: tuple[str, ...] = ()
 
     @property
     def passed(self) -> bool:
         """A replay passes when it yields listings and nothing else went wrong."""
-        return self.valid > 0 and self.invalid == 0 and self.crashes == 0 and not self.logged_out
+        return (
+            self.valid > 0 and self.invalid == 0 and self.crashes == 0 and not self.logged_out and not self.challenged
+        )

@@ -24,10 +24,14 @@
       {% if page > 0 %}<a class="btn quiet small" href="?q={{ q | urlencode }}&source={{ source_id or '' }}&page={{ page - 1 }}">Newer</a>{% endif %}
       {% if rows | length == size %}<a class="btn quiet small" href="?q={{ q | urlencode }}&source={{ source_id or '' }}&page={{ page + 1 }}">Older</a>{% endif %}
     </nav>
+    {% elif source_id and stages[source_id] != "live" %}
+    <p class="empty">This portal's scraper isn't live yet, so nothing is saved from it. Once its version is approved and merged, it is scraped right away and every six hours after. <a href="/sources/{{ source_id }}">Open the scraper</a></p>
     {% elif q or source_id %}
     <p class="empty">Nothing matches. Try fewer words or all portals.</p>
+    {% elif "live" not in stages.values() %}
+    <p class="empty">No scraper is live yet. Approve and merge one that is ready for review, and its portal's opportunities show up here within minutes.</p>
     {% else %}
-    <p class="empty">No opportunities yet. They appear once a scraper is live and has scraped its portal.</p>
+    <p class="empty">No opportunities yet. They appear once a live scraper has scraped its portal.</p>
     {% endif %}
   </div>
 </div>

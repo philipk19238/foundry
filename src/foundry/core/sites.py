@@ -60,6 +60,7 @@ class Sites:
                     spider=code / "spider.py",
                     arguments={"tenant": tenant},
                     fixtures=own if own.exists() else code / "fixtures.json",
+                    delay=portal.delay,
                 )
             case SitePortal():
                 return Site(
@@ -68,4 +69,5 @@ class Sites:
                     spider=buyer / portal.name / "scraper.py",
                     arguments={},
                     fixtures=buyer / portal.name / "fixtures.json",
+                    delay=portal.delay,
                 )
