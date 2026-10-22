@@ -9,16 +9,22 @@ import uuid
 from pathlib import Path
 from typing import assert_never
 
-from openai_codex import ApprovalMode, AsyncCodex, AsyncTurnHandle, CodexConfig, Sandbox
+from openai_codex import ApprovalMode, AsyncCodex, AsyncThread, AsyncTurnHandle, CodexConfig, Sandbox
 from openai_codex.errors import CodexError
 from openai_codex.generated.v2_all import (
     AgentMessageThreadItem,
+    CodexErrorInfoValue,
     CommandExecutionThreadItem,
     FileChangeThreadItem,
+    HttpConnectionFailedCodexErrorInfo,
     ItemCompletedNotification,
     McpToolCallThreadItem,
     ReasoningEffort,
+    ResponseStreamConnectionFailedCodexErrorInfo,
+    ResponseStreamDisconnectedCodexErrorInfo,
+    ResponseTooManyFailedAttemptsCodexErrorInfo,
     TurnCompletedNotification,
+    TurnError,
 )
 
 from foundry.app import exceptions
@@ -46,6 +52,29 @@ SKILLS = Path(__file__).parent / "skills"
 TOOL_SECONDS = 3000
 INBOX_SECONDS = 3
 MAX_RESTARTS = 3
+# How long a turn cut off by the model's provider waits before going on, once per wait; then the run fails.
+OUTAGE_WAITS = (30, 60, 120, 240, 480)
+OVERLOADED = {
+    CodexErrorInfoValue.server_overloaded,
+    CodexErrorInfoValue.rate_limit_exceeded,
+    CodexErrorInfoValue.internal_server_error,
+    CodexErrorInfoValue.flex_unavailable,
+}
+DISCONNECTED = (
+    HttpConnectionFailedCodexErrorInfo,
+    ResponseStreamConnectionFailedCodexErrorInfo,
+    ResponseStreamDisconnectedCodexErrorInfo,
+    ResponseTooManyFailedAttemptsCodexErrorInfo,
+)
+
+
+def passing(error: TurnError) -> bool:
+    """Whether the turn failed on the provider's side (busy, rate limited, down, or the connection dropped), so the
+    same thread can go on once it recovers."""
+    if error.codex_error_info is None:
+        return False
+    info = error.codex_error_info.root
+    return info in OVERLOADED if isinstance(info, CodexErrorInfoValue) else isinstance(info, DISCONNECTED)
 
 
 class Narrator:
@@ -78,6 +107,10 @@ class Narrator:
                 await self._timeline.log(run_id, EventKind.FILE, f"edited {paths}")
             case _:
                 return
+
+    async def paused(self, run_id: uuid.UUID, error: TurnError, seconds: int) -> None:
+        note = f"The model stopped mid-turn ({error.message}); the agent goes on in {seconds} seconds."
+        await self._timeline.log(run_id, EventKind.NOTE, note)
 
 
 class Submissions:
@@ -218,7 +251,8 @@ class Inbox:
 
 class Codex:
     """One Codex thread per run, in the run's checkout, with Kernel's MCP tools and our own. A run that restarted
-    goes on in the same thread. People's chat messages reach the running turn as they arrive."""
+    goes on in the same thread, and so does a turn the model's provider cut off, after a wait. People's chat messages
+    reach the running turn as they arrive."""
 
     def __init__(self, settings: Settings, narrator: Narrator, inbox: Inbox, learnings: Learnings) -> None:
         self._settings = settings
@@ -292,21 +326,36 @@ class Codex:
                     model=self._settings.codex_model,
                     sandbox=Sandbox.workspace_write,
                 )
-            turn = await thread.turn(prompt, effort=ReasoningEffort(self._settings.codex_effort))
-            delivery = asyncio.create_task(self._inbox.deliver(context.run_id, workspace, turn))
-            try:
-                async for event in turn.stream():
-                    match event.payload:
-                        case ItemCompletedNotification():
-                            await self._narrator.tell(context.run_id, event.payload)
-                        case TurnCompletedNotification(turn=done) if done.error is not None:
-                            raise exceptions.AgentFailed(done.error.message)
-                        case _:
-                            pass
-            finally:
-                delivery.cancel()
-                with contextlib.suppress(asyncio.CancelledError, CodexError):
-                    await delivery
+            for wait in (*OUTAGE_WAITS, None):
+                error = await self._turn(thread, context, workspace, prompt)
+                if error is None:
+                    return
+                if wait is None or not passing(error):
+                    raise exceptions.AgentFailed(error.message)
+                await self._narrator.paused(context.run_id, error, wait)
+                await asyncio.sleep(wait)
+                prompt = (tasks.PROMPTS / "interrupted.md").read_text()
+
+    async def _turn(
+        self, thread: AsyncThread, context: handoff.ToolsContext, workspace: Workspace, prompt: str
+    ) -> TurnError | None:
+        """Runs one turn to its end, and says how it failed if it did."""
+        turn = await thread.turn(prompt, effort=ReasoningEffort(self._settings.codex_effort))
+        delivery = asyncio.create_task(self._inbox.deliver(context.run_id, workspace, turn))
+        try:
+            async for event in turn.stream():
+                match event.payload:
+                    case ItemCompletedNotification():
+                        await self._narrator.tell(context.run_id, event.payload)
+                    case TurnCompletedNotification(turn=done) if done.error is not None:
+                        return done.error
+                    case _:
+                        pass
+        finally:
+            delivery.cancel()
+            with contextlib.suppress(asyncio.CancelledError, CodexError):
+                await delivery
+        return None
 
     def _forwarded(self) -> list[str]:
         names = [name.upper() for name in Settings.model_fields]
