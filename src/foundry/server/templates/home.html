@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block body %}
+{% if help %}
+<section class="alert">
+  <strong>✋ {{ help | length }} agent{{ "s" if help | length > 1 }} waiting for a person.</strong>
+  {% for request_ in help %}<a href="/help/{{ request_.id }}">{{ request_.reason }}</a>{% endfor %}
+</section>
+{% endif %}
+
+{% if user.is_admin %}
+<section class="card">
+  <h2>Add a portal</h2>
+  <form method="post" action="/sources" class="row">
+    <input name="url" type="url" placeholder="https://bids.example.gov" required>
+    <button>Start the agent</button>
+  </form>
+  <p class="muted small">The agent signs in (or signs up), finds the portal's API, writes a scraper, checks it against what it captured, and registers it. If it gets stuck it emails you a takeover link.</p>
+</section>
+{% endif %}
+
+<section>
+  <h2>Sources</h2>
+  <table>
+    <thead><tr><th>Portal</th><th>Status</th><th>Scraper</th><th>Last count</th><th>Added</th></tr></thead>
+    <tbody>
+    {% for source in sources %}
+      <tr>
+        <td><a href="/sources/{{ source.id }}">{{ source.name }}</a><div class="muted small">{{ source.url }}</div></td>
+        <td>{% with value=source.status %}{% include "_status.html" %}{% endwith %}{% if source.heals %} <span class="muted small">{{ source.heals }} repair{{ "s" if source.heals > 1 }}</span>{% endif %}</td>
+        <td>{% if source.scraper_version %}v{{ source.scraper_version }}{% else %}<span class="muted">—</span>{% endif %}</td>
+        <td>{{ source.previous_valid }}</td>
+        <td class="muted small">{{ source.created_at.strftime("%b %d %H:%M") }}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="5" class="muted">No portals yet.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>Recent runs</h2>
+  {% include "_runs.html" %}
+</section>
+{% endblock %}

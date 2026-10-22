@@ -1,0 +1,132 @@
+import datetime as dt
+import enum
+import json
+import uuid
+
+from pydantic import BaseModel, ConfigDict, JsonValue
+
+from foundry.app.core.models import Key
+from foundry.app.db.models.catalog import SourceStatus
+from foundry.core.models import FileLink, Listing
+
+
+class StoredFile(BaseModel, frozen=True):
+    """An attachment as stored: `file_id` is its link's id (see `ScrapedNotice.files_key`), `sha256` the hash of the
+    bytes when the download worked."""
+
+    file_id: str
+    name: str
+    url: str
+    sha256: str | None
+    content_type: str | None
+    size: int
+
+
+class ScrapedNotice(BaseModel, frozen=True):
+    """A listing from one crawl, ready to store. The ids follow formal/foundry_rules: the opportunity from the portal
+    record alone, the notice from all of its content, with files as a sorted set of digests. A file's digest is the
+    id of its link (URL and name), so ids are known before anything is downloaded and a refresh downloads only the
+    attachments of new notices."""
+
+    source_id: uuid.UUID
+    listing: Listing
+
+    @staticmethod
+    def file_id(link: FileLink) -> str:
+        return Key.of("file", [link.url, link.name]).digest
+
+    @property
+    def opportunity_id(self) -> str:
+        return Key.of("opportunity", [str(self.source_id), self.listing.external_id]).digest
+
+    @property
+    def canonical_metadata(self) -> str:
+        return json.dumps(self.listing.metadata, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+    @property
+    def files_key(self) -> tuple[str, ...]:
+        return tuple(sorted({self.file_id(link) for link in self.listing.files}))
+
+    @property
+    def notice_id(self) -> str:
+        listing = self.listing
+        due_at = listing.due_at.isoformat() if listing.due_at is not None else ""
+        fields = [str(self.source_id), listing.external_id, listing.title, due_at, listing.description]
+        return Key.of("notice", [*fields, self.canonical_metadata, *self.files_key]).digest
+
+    @property
+    def buyer_id(self) -> str | None:
+        if self.listing.buyer is None:
+            return None
+        return Key.of("buyer", [" ".join(self.listing.buyer.lower().split())]).digest
+
+
+class Known(BaseModel, frozen=True):
+    """Which of a batch's notice and opportunity ids the catalog already has."""
+
+    notices: frozenset[str]
+    opportunities: frozenset[str]
+
+
+class Change(enum.StrEnum):
+    UNCHANGED = "unchanged"
+    AMENDMENT = "amendment"
+    NEW = "new"
+
+    @classmethod
+    def of(cls, notice: ScrapedNotice, known: Known) -> "Change":
+        """formal/foundry_rules `classify`: a stored notice id is a repeat; a stored opportunity is an edit."""
+        if notice.notice_id in known.notices:
+            return cls.UNCHANGED
+        if notice.opportunity_id in known.opportunities:
+            return cls.AMENDMENT
+        return cls.NEW
+
+
+class IngestCounts(BaseModel, frozen=True):
+    """What one crawl changed: notices for opportunities we had never seen, edits of known ones, and repeats."""
+
+    new: int
+    amended: int
+    unchanged: int
+
+
+class SourceView(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    url: str
+    name: str
+    status: SourceStatus
+    site: str | None
+    heals: int
+    previous_valid: int
+    scraper_version: int | None
+    created_at: dt.datetime
+
+
+class FileView(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    file_id: str
+    name: str
+    url: str
+    sha256: str | None
+    content_type: str | None
+    size: int
+
+
+class NoticeView(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    notice_id: str
+    opportunity_id: str
+    external_id: str
+    url: str
+    title: str
+    buyer: str | None
+    due_at: dt.datetime | None
+    description: str
+    metadata: dict[str, JsonValue]
+    first_seen_at: dt.datetime
+    files: list[FileView]

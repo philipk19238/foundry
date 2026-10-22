@@ -1,0 +1,42 @@
+mutation claim ignores a live lease
+detects OneBrowser
+- /\ pc[r] = "queued" /\ (holder = None \/ ttl = 0)
++ /\ pc[r] = "queued"
+
+mutation asking for help does not pause the agent
+detects OneDriver
+-     /\ pc' = [pc EXCEPT ![r] = "waiting"]
+-     /\ UNCHANGED <<lease, mine, claimer, answer, acked, staleWrite, restart>>
++     /\ UNCHANGED <<lease, pc, mine, claimer, answer, acked, staleWrite, restart>>
+
+mutation a done answer is read as unanswered
+detects NoLostDone
+-     /\ \/ help[r] = "done" /\ answer' = [answer EXCEPT ![r] = "helped"] /\ pc' = [pc EXCEPT ![r] = "working"]
++     /\ \/ help[r] = "done" /\ answer' = [answer EXCEPT ![r] = "unanswered"] /\ pc' = [pc EXCEPT ![r] = "stopping"]
+
+mutation writes check only the fence, not the holder
+detects NoStaleWrite
+-     /\ IF ~FencedWrites \/ (holder = r /\ fence = mine[r])
++     /\ IF ~FencedWrites \/ fence >= mine[r]
+
+mutation the agent never re-reads after expiring
+detects AllDone
+-     /\ pc' = [pc EXCEPT ![r] = "waiting"]
+-     /\ UNCHANGED <<lease, mine, claimer, helpTtl, answer, acked, staleWrite, restart>>
++     /\ UNCHANGED <<lease, pc, mine, claimer, helpTtl, answer, acked, staleWrite, restart>>
+
+mutation a claim skips a fence number
+detects TypeOK
+-     /\ holder' = r /\ ttl' = LeaseTTL /\ fence' = fence + 1
++     /\ holder' = r /\ ttl' = LeaseTTL /\ fence' = fence + 2
+
+mutation the run is redeployed before it lets go of its lease
+detects NoSelfSkip
+-     /\ pc[r] = "restarting" /\ want[r]
++     /\ pc[r] \in {"stopping", "restarting"} /\ want[r]
+
+mutation restarts are not counted
+detects AllDone
+cfg Live-AllDone
+- /\ want' = [want EXCEPT ![r] = FALSE] /\ restarts' = [restarts EXCEPT ![r] = restarts[r] + 1]
++ /\ want' = [want EXCEPT ![r] = FALSE] /\ restarts' = restarts

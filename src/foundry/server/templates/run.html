@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}{{ run.kind | capitalize }} {{ source.name }} · Foundry{% endblock %}
+{% block body %}
+<section class="head">
+  <div>
+    <h1>{{ run.kind | capitalize }} · <a href="/sources/{{ source.id }}">{{ source.name }}</a></h1>
+    <span class="mono muted small">{{ run.id }}</span>
+  </div>
+  <div class="facts" id="run-status">{% include "_run_status.html" %}</div>
+</section>
+<section id="help-box">{% include "_help_box.html" %}</section>
+<section class="card">
+  <ol class="timeline" id="timeline">
+    {% for event in events %}{% include "_event.html" %}{% endfor %}
+  </ol>
+  {% set after = events[-1].id if events else 0 %}
+  {% include "_poller.html" %}
+</section>
+{% endblock %}

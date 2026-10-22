@@ -1,0 +1,5 @@
+name = "foundry_rules"
+defaultTargets = ["FoundryRules"]
+
+[[lean_lib]]
+name = "FoundryRules"

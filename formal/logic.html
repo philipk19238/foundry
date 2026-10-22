@@ -1,0 +1,505 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Foundry Logic Gates</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #f6f5f1; --panel: #fff; --ink: #1d1d1b; --muted: #77746b; --line: #e3e0d6;
+  --on: #e8590c; --on-soft: #fff1e8; --off: #b9b5aa; --good: #1f8a4c; --bad: #c53030; --wait: #6d4aff; --accent: #2f5bea;
+  --mono: "JetBrains Mono", ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --bg: #121211; --panel: #1b1b19; --ink: #ecebe6; --muted: #9a978d; --line: #2e2d29; --on: #ff8a3d; --on-soft: #3a2414; --off: #55524a; --accent: #7c9cff; }
+}
+:root[data-theme="dark"] { --bg: #121211; --panel: #1b1b19; --ink: #ecebe6; --muted: #9a978d; --line: #2e2d29; --on: #ff8a3d; --on-soft: #3a2414; --off: #55524a; --accent: #7c9cff; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 Inter, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+main { max-width: 1100px; margin: 0 auto; padding: 32px 16px 80px; display: grid; gap: 28px; }
+h1 { font-size: 30px; margin: 0; letter-spacing: -0.02em; }
+h2 { font-size: 20px; margin: 0 0 4px; }
+p { margin: 0; }
+.lede { color: var(--muted); max-width: 760px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 22px; display: grid; gap: 16px; }
+.row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.muted { color: var(--muted); }
+.small { font-size: 13px; }
+code, .mono { font-family: var(--mono); font-size: 12.5px; }
+.legend { display: flex; gap: 18px; flex-wrap: wrap; font-size: 13px; color: var(--muted); }
+.legend span::before { content: ""; display: inline-block; width: 22px; height: 4px; border-radius: 2px; margin-right: 6px; vertical-align: 3px; background: var(--off); }
+.legend .lit::before { background: var(--on); }
+svg { width: 100%; height: auto; display: block; overflow: visible; }
+.wire { fill: none; stroke: var(--off); stroke-width: 2.5; transition: stroke 0.2s; }
+.wire.on { stroke: var(--on); }
+.gate { fill: var(--panel); stroke: var(--ink); stroke-width: 1.8; transition: fill 0.2s; }
+.gate.on { fill: var(--on-soft); stroke: var(--on); }
+.gate-label { font: 600 11px Inter, sans-serif; fill: var(--muted); text-anchor: middle; }
+.input rect { fill: var(--panel); stroke: var(--line); stroke-width: 1.5; cursor: pointer; transition: all 0.15s; }
+.input.on rect { fill: var(--on-soft); stroke: var(--on); }
+.input text { font: 500 13px Inter, sans-serif; fill: var(--ink); pointer-events: none; }
+.input .val { font: 600 12px var(--mono); fill: var(--muted); }
+.input.on .val { fill: var(--on); }
+.input:hover rect { stroke: var(--on); }
+.out rect { fill: var(--panel); stroke: var(--line); stroke-width: 1.5; transition: all 0.2s; }
+.out text { font: 600 13px Inter, sans-serif; fill: var(--muted); }
+.out.on rect { stroke-width: 2.5; }
+.out.on.good rect { fill: color-mix(in srgb, var(--good) 14%, var(--panel)); stroke: var(--good); }
+.out.on.good text { fill: var(--good); }
+.out.on.bad rect { fill: color-mix(in srgb, var(--bad) 12%, var(--panel)); stroke: var(--bad); }
+.out.on.bad text { fill: var(--bad); }
+.out.on.warn rect { fill: color-mix(in srgb, var(--on) 14%, var(--panel)); stroke: var(--on); }
+.out.on.warn text { fill: var(--on); }
+.out.on.wait rect { fill: color-mix(in srgb, var(--wait) 12%, var(--panel)); stroke: var(--wait); }
+.out.on.wait text { fill: var(--wait); }
+.theorem { border-left: 3px solid var(--accent); padding: 8px 12px; background: color-mix(in srgb, var(--accent) 6%, transparent); border-radius: 0 8px 8px 0; font-size: 14px; }
+.theorem b { font-family: var(--mono); font-size: 12.5px; font-weight: 500; color: var(--accent); }
+button { font: inherit; font-weight: 500; background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 7px 13px; cursor: pointer; transition: transform 0.08s, border-color 0.15s; }
+button:hover { border-color: var(--on); }
+button:active { transform: scale(0.97); }
+button.primary { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+input[type=text] { font: inherit; background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; width: 100%; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 760px) { .grid2 { grid-template-columns: 1fr; } }
+.fields { display: grid; gap: 8px; }
+.fields label { display: grid; grid-template-columns: 110px 1fr; gap: 10px; align-items: center; font-size: 13px; }
+.tag { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; padding: 2px 7px; border-radius: 999px; }
+.tag.static { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
+.tag.dynamic { background: color-mix(in srgb, var(--on) 14%, transparent); color: var(--on); }
+.hash { font-family: var(--mono); font-size: 12px; word-break: break-all; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); transition: background 0.3s, border-color 0.3s; }
+.hash.changed { background: var(--on-soft); border-color: var(--on); }
+.hash.same { border-color: var(--good); }
+.verdict-line { font-size: 13px; }
+.flash { animation: flash 0.6s ease-out; }
+@keyframes flash { from { background: var(--on-soft); } }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); font-weight: 500; }
+.ok { color: var(--good); font-weight: 600; }
+.tape { display: flex; gap: 6px; flex-wrap: wrap; }
+.tape .step { font-size: 12px; padding: 6px 9px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); }
+.tape .step b { display: block; font-size: 13px; }
+.tape .step.ready { border-color: var(--good); }
+.tape .step.needsHuman { border-color: var(--bad); }
+.tape .step.healing, .tape .step.relogin { border-color: var(--on); }
+.sm-state { fill: var(--panel); stroke: var(--line); stroke-width: 1.6; }
+.sm-state.hl { stroke: var(--wait); stroke-width: 2.5; fill: color-mix(in srgb, var(--wait) 8%, var(--panel)); }
+.sm-text { font: 600 13px Inter, sans-serif; fill: var(--ink); text-anchor: middle; }
+.sm-sub { font: 400 11px Inter, sans-serif; fill: var(--muted); text-anchor: middle; }
+.sm-edge { fill: none; stroke: var(--muted); stroke-width: 1.6; marker-end: url(#arrow); }
+.sm-edge-label { font: 500 11px var(--mono); fill: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <header style="display:grid;gap:8px">
+    <h1>The rules, as logic gates</h1>
+    <p class="lede">Each circuit below is a rule Lean proved about the foundry code. Click the inputs on the left to switch them on or off, and follow the orange wires to the output. Every output names the theorem that says it always works this way, for every input, not just the ones you try.</p>
+    <div class="legend"><span>signal off</span><span class="lit">signal on</span></div>
+  </header>
+
+  <section class="card" id="verdict">
+    <div>
+      <h2>1. After a crawl: healthy, logged out, or broken?</h2>
+      <p class="muted">The scraper ran. These five facts decide what happens next. The bottom AND gate is the one people forget: a scraper that used to find notices and now finds none is broken, even with no error.</p>
+    </div>
+    <svg id="verdict-svg" viewBox="0 0 980 430"></svg>
+    <div class="theorem"><b>logged_out_relogs</b> If the portal refused the session, the verdict is always <em>relogin</em>.</div>
+    <div class="theorem"><b>silent_breakage_heals</b> Not logged out, zero listings now, more than zero last time: always <em>heal</em>.</div>
+    <div class="theorem"><b>clean_is_healthy</b> No crash, no invalid item, and listings found (or none ever expected): always <em>healthy</em>.</div>
+    <div class="theorem"><b>naive_misses_silent_breakage</b> Remove the bottom AND gate and a portal redesign that returns nothing reads as <em>healthy</em>. Lean exhibits that exact case, so the gate is load-bearing.</div>
+  </section>
+
+  <section class="card" id="budget">
+    <div>
+      <h2>2. The repair budget: when do we ask a person?</h2>
+      <p class="muted">A broken or logged-out crawl spends one repair (a heal or a relogin), up to 3 in a row. After that the source waits for a person. One healthy crawl clears the count. Choose a verdict and press <em>Next crawl</em> to walk through it.</p>
+    </div>
+    <svg id="budget-svg" viewBox="0 0 980 330"></svg>
+    <div class="row">
+      <span class="small muted">Next crawl's verdict:</span>
+      <button data-v="healthy">healthy</button><button data-v="relogin">relogin</button><button data-v="heal" class="primary">heal</button>
+      <button id="step">Next crawl →</button><button id="reset">Reset</button>
+    </div>
+    <div class="tape" id="tape"></div>
+    <div class="theorem"><b>heals_bounded</b> The count never goes above 3, whatever the crawls do.</div>
+    <div class="theorem"><b>needsHuman_only_when_exhausted</b> A person is asked only after 3 repairs, and never for a healthy crawl.</div>
+    <div class="theorem"><b>relogin_loop_reaches_human</b> / <b>naive_relogin_loops_forever</b> A portal that refuses every fresh login reaches a person after 3 relogins. In the first draft relogins didn't spend the budget, and Lean showed that draft loops forever. This is the bug the model caught.</div>
+  </section>
+
+  <section class="card" id="identity">
+    <div>
+      <h2>3. Ids from content: what changes which id?</h2>
+      <p class="muted">Each id is the SHA-256 of its fields, each written as an 8-byte length and then the field's bytes. These are the real ids, computed in your browser with the same encoding as <code>foundry/core/models.py</code>. Edit a field and see which id changes.</p>
+    </div>
+    <div class="grid2">
+      <div class="fields" id="fields"></div>
+      <div style="display:grid;gap:10px;align-content:start">
+        <div><span class="tag static">opportunity_id</span> <span class="small muted">source and portal id only</span></div>
+        <div class="hash" id="opp"></div>
+        <div><span class="tag dynamic">notice_id</span> <span class="small muted">every field, with files as a sorted set</span></div>
+        <div class="hash" id="notice"></div>
+        <div class="row"><button id="shuffle">Shuffle and repeat the files</button><button id="restore">Back to the start</button></div>
+        <p class="small muted" id="identity-note"></p>
+      </div>
+    </div>
+    <div class="theorem"><b>encode_injective</b> Two different field lists never encode to the same bytes, so two ids can only match if SHA-256 itself collides. <b>naive_collides</b>: without the length header, <code>["ab","c"]</code> and <code>["a","bc"]</code> would collide.</div>
+    <div class="theorem"><b>opportunity_ignores_dynamic</b> Edits to the title, due date, description, metadata or files never move the opportunity.</div>
+    <div class="theorem"><b>notice_same_iff</b> Two scrapes share a notice id exactly when they have the same content. File order and repeated files don't count.</div>
+  </section>
+
+  <section class="card" id="ingest">
+    <div>
+      <h2>4. Storing a scraped notice: new, amended, or a repeat?</h2>
+      <p class="muted">Rows are only ever inserted, never changed. Switch on whether the database already has this notice id and this opportunity id.</p>
+    </div>
+    <svg id="ingest-svg" viewBox="0 0 980 260"></svg>
+    <div class="theorem"><b>classify_unchanged_iff</b> A repeat is exactly a notice id already stored. <b>classify_amendment_iff</b> An amendment is exactly a new notice id for a stored opportunity.</div>
+    <div class="theorem"><b>ingestAll_idempotent</b> Running the same refresh twice adds nothing. <b>ingestAll_order_free</b> Scrape order doesn't matter. <b>ingestAll_keeps</b> A stored row is never dropped or rewritten.</div>
+  </section>
+
+  <section class="card" id="handoff">
+    <div>
+      <h2>5. The handoff: agent, person, and the clock (TLA+)</h2>
+      <p class="muted">This part is concurrent, so it is model-checked with TLA+ instead of proved in Lean. TLC tried every ordering of these steps for 2 runs racing for one source and 2 helpers, with lapsed leases, worker stalls and clock skew between the server and the worker. Click a state to see what can happen next.</p>
+    </div>
+    <svg id="sm-svg" viewBox="0 0 980 300"></svg>
+    <p class="small" id="sm-note"></p>
+    <table>
+      <thead><tr><th>Property</th><th>What it means</th><th>Result</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">OneDriver</td><td>A person and the agent never drive one browser at once.</td><td class="ok">holds</td></tr>
+        <tr><td class="mono">NoLostDone</td><td>A person told "handed back" never leaves the agent thinking nobody answered. This needs the conditional expiry; without it, clock skew loses the answer (<span class="mono">Ablate-ConditionalExpire</span> fails as it should).</td><td class="ok">holds</td></tr>
+        <tr><td class="mono">NoStaleWrite</td><td>A run that lost its lease can't write scrapers, notices or health (<span class="mono">Ablate-FencedWrites</span> fails as it should).</td><td class="ok">holds, even with stalls</td></tr>
+        <tr><td class="mono">OneBrowser</td><td>One Kernel browser per source profile. It needs the lease renewed while a person is helping (<span class="mono">Ablate-RenewWhileWaiting</span> fails as it should). Known gap: a worker that stalls longer than the 2-minute lease can overlap the next run briefly. The worst case is one overwritten browser profile, which the relogin path recovers.</td><td class="ok">holds without stalls</td></tr>
+        <tr><td class="mono">AllDone</td><td>Every run ends, even if no person ever answers.</td><td class="ok">holds</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="card">
+    <h2>What was checked</h2>
+    <table>
+      <thead><tr><th>Check</th><th>Result</th></tr></thead>
+      <tbody>
+        <tr><td>Lean proofs (<code>formal/foundry_rules</code>)</td><td><span class="ok">all proved</span>: no <code>sorry</code>, no axioms beyond Lean's standard three, statements frozen</td></tr>
+        <tr><td>Planted bugs in the Lean model (a missing header, unsorted files, a forgotten field, overwrite on ingest, the silent-breakage gate removed, an off-by-one, relogins off the budget)</td><td><span class="ok">8 of 8 caught</span></td></tr>
+        <tr><td>Python vs Lean, byte for byte (<code>tests/test_identity.py</code>)</td><td><span class="ok">4 of 4 agree</span></td></tr>
+        <tr><td>TLA+ fast tier (<code>formal/runs</code>): safety, liveness, witnesses, ablations</td><td><span class="ok">11 of 11 as expected</span></td></tr>
+        <tr><td>TLA+ full tier: 3 runs, longer leases</td><td><span class="ok">holds</span>, 162,181 states</td></tr>
+        <tr><td>Planted bugs in the TLA+ model</td><td><span class="ok">6 of 6 caught</span></td></tr>
+      </tbody>
+    </table>
+    <p class="small muted">What a pass leaves open: Lean assumes SHA-256 doesn't collide and that JSON metadata is serialized canonically (sorted keys). TLA+ covers these sizes and the modelled steps, not Kernel or Modal internals.</p>
+  </section>
+</main>
+
+<script>
+const NS = "http://www.w3.org/2000/svg";
+function el(tag, attrs, parent) {
+  const node = document.createElementNS(NS, tag);
+  for (const [k, v] of Object.entries(attrs || {})) node.setAttribute(k, v);
+  if (parent) parent.appendChild(node);
+  return node;
+}
+function text(parent, x, y, value, cls, anchor) {
+  const t = el("text", { x, y, class: cls || "", "text-anchor": anchor || "start" }, parent);
+  t.textContent = value;
+  return t;
+}
+function andShape(g, x, y, h) {
+  const w = h * 0.95;
+  return el("path", { d: `M${x},${y - h / 2} h${w / 2} a${h / 2},${h / 2} 0 0 1 0,${h} h${-w / 2} z`, class: "gate" }, g);
+}
+function orShape(g, x, y, h) {
+  const w = h * 1.1;
+  return el("path", {
+    d: `M${x},${y - h / 2} q${w * 0.55},0 ${w},${h / 2} q${-w * 0.45},${h / 2} ${-w},${h / 2} q${w * 0.25},${-h / 2} 0,${-h} z`,
+    class: "gate",
+  }, g);
+}
+function notShape(g, x, y, h) {
+  const s = el("g", {}, g);
+  el("path", { d: `M${x},${y - h / 2} L${x + h * 0.8},${y} L${x},${y + h / 2} z`, class: "gate" }, s);
+  el("circle", { cx: x + h * 0.8 + 5, cy: y, r: 5, class: "gate" }, s);
+  return s;
+}
+function wire(g, points) {
+  const d = points.map((p, i) => (i ? "L" : "M") + p[0] + "," + p[1]).join(" ");
+  return el("path", { d, class: "wire" }, g);
+}
+function setOn(node, on) {
+  node.classList.toggle("on", !!on);
+  if (node.tagName === "g") node.querySelectorAll(".gate").forEach((n) => n.classList.toggle("on", !!on));
+}
+function inputBox(g, x, y, label, onClick) {
+  const box = el("g", { class: "input", transform: `translate(${x},${y - 18})`, tabindex: 0, role: "button" }, g);
+  el("rect", { width: 190, height: 36, rx: 8 }, box);
+  text(box, 12, 23, label);
+  const val = text(box, 178, 23, "0", "val", "end");
+  box.addEventListener("click", onClick);
+  box.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); } });
+  return { box, val };
+}
+function outBox(g, x, y, label, tone, w) {
+  const box = el("g", { class: "out " + tone, transform: `translate(${x},${y - 18})` }, g);
+  el("rect", { width: w || 150, height: 36, rx: 18 }, box);
+  text(box, (w || 150) / 2, 23, label, "", "middle");
+  return box;
+}
+
+/* 1. verdict */
+(function () {
+  const svg = document.getElementById("verdict-svg");
+  const state = { auth: false, crashed: false, invalid: false, zero: true, before: true };
+  const labels = { auth: "portal refused session", crashed: "scraper crashed", invalid: "an item was invalid", zero: "0 listings now", before: "> 0 listings last time" };
+  const rows = { auth: 50, crashed: 150, invalid: 210, zero: 300, before: 360 };
+  const W = {}, I = {};
+  const g = el("g", {}, svg);
+  W.auth = wire(g, [[200, 50], [860, 50]]);
+  W.authDown = wire(g, [[600, 50], [600, 95]]);
+  W.crashed = wire(g, [[200, 150], [470, 150], [470, 180], [490, 180]]);
+  W.invalid = wire(g, [[200, 210], [490, 210]]);
+  W.zero = wire(g, [[200, 300], [290, 300], [290, 318], [300, 318]]);
+  W.before = wire(g, [[200, 360], [290, 360], [290, 342], [300, 342]]);
+  W.and = wire(g, [[360, 330], [450, 330], [450, 240], [490, 240]]);
+  W.or = wire(g, [[555, 210], [660, 210], [660, 198], [680, 198]]);
+  W.notAuth = wire(g, [[600, 140], [600, 160], [660, 160], [660, 182], [680, 182]]);
+  W.notAuth2 = wire(g, [[660, 160], [660, 260], [680, 260]]);
+  W.orToNot = wire(g, [[640, 210], [640, 290], [640, 290]]);
+  W.notOr = wire(g, [[640, 290], [640, 276], [680, 276]]);
+  W.heal = wire(g, [[740, 190], [860, 190]]);
+  W.healthy = wire(g, [[740, 268], [860, 268]]);
+  const and = andShape(g, 300, 330, 44); text(g, 322, 365, "AND", "gate-label", "middle");
+  const or = orShape(g, 490, 210, 76); text(g, 520, 260, "OR", "gate-label", "middle");
+  const notA = notShape(g, 582, 108, 30); text(g, 640, 112, "NOT", "gate-label", "start");
+  const and2 = andShape(g, 680, 190, 32); text(g, 700, 222, "AND", "gate-label", "middle");
+  const notO = notShape(g, 612, 290, 22);
+  const and3 = andShape(g, 680, 268, 32); text(g, 700, 300, "AND", "gate-label", "middle");
+  const outs = { relogin: outBox(g, 860, 50, "relogin", "warn"), heal: outBox(g, 860, 190, "heal", "bad"), healthy: outBox(g, 860, 268, "healthy", "good") };
+  for (const key of Object.keys(rows)) I[key] = inputBox(g, 10, rows[key], labels[key], () => { state[key] = !state[key]; draw(); });
+  function draw() {
+    const andV = state.zero && state.before;
+    const orV = state.crashed || state.invalid || andV;
+    const heal = !state.auth && orV, healthy = !state.auth && !orV;
+    for (const key of Object.keys(rows)) { setOn(I[key].box, state[key]); I[key].val.textContent = state[key] ? "1" : "0"; setOn(W[key], state[key]); }
+    setOn(W.authDown, state.auth); setOn(and, andV); setOn(W.and, andV); setOn(or, orV); setOn(W.or, orV);
+    setOn(notA, !state.auth); setOn(W.notAuth, !state.auth); setOn(W.notAuth2, !state.auth);
+    setOn(W.orToNot, orV); setOn(notO, !orV); setOn(W.notOr, !orV);
+    setOn(and2, heal); setOn(W.heal, heal); setOn(and3, healthy); setOn(W.healthy, healthy);
+    setOn(outs.relogin, state.auth); setOn(outs.heal, heal); setOn(outs.healthy, healthy);
+  }
+  draw();
+})();
+
+/* 2. budget */
+(function () {
+  const svg = document.getElementById("budget-svg");
+  const g = el("g", {}, svg);
+  let chosen = "heal", health = { status: "ready", heals: 0 }, history = [];
+  const W = {};
+  const vIn = { healthy: 60, relogin: 120, heal: 180 };
+  const boxes = {};
+  for (const [v, y] of Object.entries(vIn)) {
+    const b = el("g", { class: "out", transform: `translate(10,${y - 18})` }, g);
+    el("rect", { width: 150, height: 36, rx: 8 }, b); text(b, 75, 23, "verdict = " + v, "", "middle");
+    boxes[v] = b;
+  }
+  const hb = el("g", { class: "out", transform: "translate(10,262)" }, g);
+  el("rect", { width: 150, height: 36, rx: 8 }, hb); const hbText = text(hb, 75, 23, "repairs so far = 0", "", "middle");
+  W.healthy = wire(g, [[160, 60], [760, 60]]);
+  W.relogin = wire(g, [[160, 120], [430, 120], [430, 150], [450, 150]]);
+  W.heal = wire(g, [[160, 180], [400, 180], [400, 160], [450, 160]]);
+  W.count = wire(g, [[160, 280], [250, 280]]);
+  W.lt = wire(g, [[350, 280], [560, 280], [560, 220], [580, 220]]);
+  W.repair = wire(g, [[512, 155], [540, 155], [540, 190], [580, 190]]);
+  W.repair2 = wire(g, [[540, 190], [540, 250], [580, 250]]);
+  W.ge = wire(g, [[300, 300], [300, 316], [560, 316], [560, 268], [580, 268]]);
+  W.fix = wire(g, [[640, 205], [760, 205]]);
+  W.human = wire(g, [[640, 259], [760, 259]]);
+  const cmp = el("g", {}, g);
+  el("rect", { x: 250, y: 258, width: 100, height: 44, rx: 8, class: "gate" }, cmp);
+  text(cmp, 300, 285, "count < 3", "gate-label", "middle");
+  const or = orShape(g, 450, 155, 40); text(g, 472, 190, "OR", "gate-label", "middle");
+  const andFix = andShape(g, 580, 205, 36); text(g, 600, 240, "AND", "gate-label", "middle");
+  const andHuman = andShape(g, 580, 259, 36);
+  const notGe = notShape(g, 300, 300, 0);
+  const outs = {
+    ready: outBox(g, 760, 60, "ready · count → 0", "good", 210),
+    fix: outBox(g, 760, 205, "repair · count + 1", "warn", 210),
+    human: outBox(g, 760, 259, "needs a person", "bad", 210),
+  };
+  document.querySelectorAll("#budget [data-v]").forEach((b) => b.addEventListener("click", () => {
+    chosen = b.dataset.v;
+    document.querySelectorAll("#budget [data-v]").forEach((x) => x.classList.toggle("primary", x === b));
+    draw();
+  }));
+  function after(h, v) {
+    if (v === "healthy") return { status: "ready", heals: 0 };
+    if (h.heals >= 3) return { status: "needsHuman", heals: h.heals };
+    return { status: v === "relogin" ? "relogin" : "healing", heals: h.heals + 1 };
+  }
+  function draw() {
+    const repair = chosen !== "healthy", lt = health.heals < 3;
+    for (const v of Object.keys(vIn)) { setOn(boxes[v], v === chosen); boxes[v].classList.toggle("warn", v === chosen); setOn(W[v], v === chosen); }
+    hbText.textContent = "repairs so far = " + health.heals;
+    setOn(W.count, true); setOn(cmp, lt); setOn(W.lt, lt); setOn(W.ge, !lt);
+    setOn(or, repair); setOn(W.repair, repair); setOn(W.repair2, repair);
+    setOn(andFix, repair && lt); setOn(W.fix, repair && lt);
+    setOn(andHuman, repair && !lt); setOn(W.human, repair && !lt);
+    setOn(outs.ready, !repair); setOn(outs.fix, repair && lt); setOn(outs.human, repair && !lt);
+    const tape = document.getElementById("tape");
+    tape.innerHTML = "";
+    for (const [v, h] of history) {
+      const s = document.createElement("div");
+      s.className = "step " + h.status;
+      s.innerHTML = `<span class="muted">${v}</span><b>${h.status.replace("needsHuman", "needs a person")}</b><span class="mono">count ${h.heals}</span>`;
+      tape.appendChild(s);
+    }
+  }
+  document.getElementById("step").addEventListener("click", () => { health = after(health, chosen); history.push([chosen, health]); draw(); });
+  document.getElementById("reset").addEventListener("click", () => { health = { status: "ready", heals: 0 }; history = []; draw(); });
+  draw();
+})();
+
+/* 3. identity */
+(function () {
+  const start = {
+    source: "6f1c2a9e-0b7d-4e55-9a7e-1d2f3c4b5a69", external: "RFP-25-001", title: "Road salt",
+    due: "2026-11-03T14:00:00-06:00", description: "Bulk road salt", metadata: '{"naics":"212390"}',
+    files: "ff…ff, 01…01, ff…ff",
+  };
+  const fileDigests = ["f".repeat(64), "0".repeat(63) + "1", "f".repeat(64)];
+  let files = [...fileDigests];
+  const kinds = { source: "static", external: "static", title: "dynamic", due: "dynamic", description: "dynamic", metadata: "dynamic", files: "dynamic" };
+  const names = { source: "source id", external: "portal id", title: "title", due: "due at", description: "description", metadata: "metadata", files: "file digests" };
+  const box = document.getElementById("fields");
+  const inputs = {};
+  for (const key of Object.keys(start)) {
+    const label = document.createElement("label");
+    label.innerHTML = `<span><span class="tag ${kinds[key]}">${kinds[key]}</span> ${names[key]}</span>`;
+    const input = document.createElement("input");
+    input.type = "text"; input.value = start[key]; input.readOnly = key === "files";
+    input.addEventListener("input", compute);
+    label.appendChild(input); box.appendChild(label); inputs[key] = input;
+  }
+  function encode(fields) {
+    const enc = new TextEncoder(), parts = [];
+    for (const f of fields) {
+      const bytes = enc.encode(f), head = new Uint8Array(8);
+      let n = bytes.length;
+      for (let i = 7; i >= 0; i--) { head[i] = n % 256; n = Math.floor(n / 256); }
+      parts.push(head, bytes);
+    }
+    const out = new Uint8Array(parts.reduce((a, p) => a + p.length, 0));
+    let o = 0; for (const p of parts) { out.set(p, o); o += p.length; }
+    return out;
+  }
+  async function sha(fields) {
+    const digest = await crypto.subtle.digest("SHA-256", encode(fields));
+    return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  }
+  let first = null;
+  async function compute() {
+    const v = Object.fromEntries(Object.entries(inputs).map(([k, i]) => [k, i.value]));
+    const filesKey = [...new Set(files)].sort();
+    const opp = await sha(["opportunity", v.source, v.external]);
+    const notice = await sha(["notice", v.source, v.external, v.title, v.due, v.description, v.metadata, ...filesKey]);
+    if (!first) first = { opp, notice };
+    const oppEl = document.getElementById("opp"), noticeEl = document.getElementById("notice");
+    oppEl.textContent = opp; noticeEl.textContent = notice;
+    oppEl.className = "hash " + (opp === first.opp ? "same" : "changed");
+    noticeEl.className = "hash " + (notice === first.notice ? "same" : "changed");
+    const note = document.getElementById("identity-note");
+    note.textContent = opp === first.opp && notice === first.notice
+      ? "Both ids match the start (green border)."
+      : opp === first.opp ? "Same opportunity, new notice: this is an amendment." : "A different portal record: a new opportunity.";
+  }
+  document.getElementById("shuffle").addEventListener("click", () => {
+    files = [...files, files[Math.floor(Math.random() * files.length)]].sort(() => Math.random() - 0.5);
+    inputs.files.value = files.map((f) => f.slice(0, 2) + "…" + f.slice(-2)).join(", ");
+    compute();
+  });
+  document.getElementById("restore").addEventListener("click", () => {
+    files = [...fileDigests];
+    for (const [k, i] of Object.entries(inputs)) i.value = start[k];
+    compute();
+  });
+  compute();
+})();
+
+/* 4. ingest */
+(function () {
+  const svg = document.getElementById("ingest-svg");
+  const g = el("g", {}, svg);
+  const state = { notice: false, opp: false };
+  const I = {}, W = {};
+  I.notice = inputBox(g, 10, 60, "notice id already stored", () => { state.notice = !state.notice; draw(); });
+  I.opp = inputBox(g, 10, 170, "opportunity already stored", () => { state.opp = !state.opp; draw(); });
+  W.notice = wire(g, [[200, 60], [760, 60]]);
+  W.down = wire(g, [[420, 60], [420, 120]]);
+  W.notN = wire(g, [[460, 130], [560, 130], [560, 150], [580, 150]]);
+  W.notN2 = wire(g, [[520, 130], [520, 222], [580, 222]]);
+  W.opp = wire(g, [[200, 170], [580, 170]]);
+  W.down2 = wire(g, [[340, 170], [340, 238]]);
+  W.notO = wire(g, [[372, 250], [420, 250], [420, 238], [580, 238]]);
+  W.amend = wire(g, [[640, 160], [760, 160]]);
+  W.fresh = wire(g, [[640, 230], [760, 230]]);
+  const notN = notShape(g, 420, 130, 30);
+  const notO = notShape(g, 340, 250, 22);
+  const a1 = andShape(g, 580, 160, 36); text(g, 600, 195, "AND", "gate-label", "middle");
+  const a2 = andShape(g, 580, 230, 36);
+  const outs = { unchanged: outBox(g, 760, 60, "repeat · store nothing", "good", 210), amend: outBox(g, 760, 160, "amendment · new row", "warn", 210), fresh: outBox(g, 760, 230, "new opportunity · new row", "wait", 210) };
+  function draw() {
+    const amend = !state.notice && state.opp, fresh = !state.notice && !state.opp;
+    for (const k of ["notice", "opp"]) { setOn(I[k].box, state[k]); I[k].val.textContent = state[k] ? "1" : "0"; setOn(W[k], state[k]); }
+    setOn(W.down, state.notice); setOn(notN, !state.notice); setOn(W.notN, !state.notice); setOn(W.notN2, !state.notice);
+    setOn(W.down2, state.opp); setOn(notO, !state.opp); setOn(W.notO, !state.opp);
+    setOn(a1, amend); setOn(W.amend, amend); setOn(a2, fresh); setOn(W.fresh, fresh);
+    setOn(outs.unchanged, state.notice); setOn(outs.amend, amend); setOn(outs.fresh, fresh);
+  }
+  draw();
+})();
+
+/* 5. handoff state machine */
+(function () {
+  const svg = document.getElementById("sm-svg");
+  const defs = el("defs", {}, svg);
+  const m = el("marker", { id: "arrow", viewBox: "0 0 10 10", refX: 9, refY: 5, markerWidth: 7, markerHeight: 7, orient: "auto-start-reverse" }, defs);
+  el("path", { d: "M0,0 L10,5 L0,10 z", fill: "var(--muted)" }, m);
+  const states = {
+    open: { x: 90, y: 150, label: "open", sub: "agent waits; email sent", note: "The agent called request_help and only waits now; it does not touch the browser. Its lease keeps renewing, so no other run can take the source. Any helper can claim it." },
+    claimed: { x: 360, y: 70, label: "claimed", sub: "one person drives", note: "Exactly one helper sees the browser (the live view is shown only to the claimer). They can give it back, or mark it done. The agent is still only waiting." },
+    done: { x: 640, y: 70, label: "done", sub: "agent resumes", note: "The server accepted the done (claimed by this person and not yet expired). The agent's next read returns 'helped' with the note, and it resumes. NoLostDone: this answer can never be overwritten by an expiry." },
+    expired: { x: 640, y: 230, label: "expired", sub: "agent stops", note: "The agent's clock ran out, and its expiry is a conditional write from open or claimed only. If a done landed first, the expiry changes nothing, and the agent reads 'done' instead." },
+  };
+  const edges = [
+    ["open", "claimed", "claim", 0], ["claimed", "open", "give back", 1], ["claimed", "done", "done", 0],
+    ["open", "expired", "expire (CAS)", 0], ["claimed", "expired", "expire (CAS)", 0],
+  ];
+  const nodes = {};
+  for (const [a, b, label, bend] of edges) {
+    const A = states[a], B = states[b];
+    const mx = (A.x + B.x) / 2 + (bend ? 0 : 0), my = (A.y + B.y) / 2 + (bend ? 46 : -10);
+    const sx = A.x + (B.x > A.x ? 70 : -70) * (bend ? -0.2 : 1), sy = A.y + (bend ? 26 : 0);
+    const ex = B.x + (A.x > B.x ? 74 : -74) * (bend ? -0.2 : 1), ey = B.y + (bend ? 26 : 0);
+    el("path", { d: `M${sx},${sy} Q${mx},${my} ${ex},${ey}`, class: "sm-edge" }, svg);
+    text(svg, mx, my - 4, label, "sm-edge-label", "middle");
+  }
+  for (const [key, s] of Object.entries(states)) {
+    const g = el("g", { style: "cursor:pointer", tabindex: 0, role: "button" }, svg);
+    nodes[key] = el("rect", { x: s.x - 70, y: s.y - 28, width: 140, height: 56, rx: 14, class: "sm-state" }, g);
+    text(g, s.x, s.y - 3, s.label, "sm-text", "middle");
+    text(g, s.x, s.y + 15, s.sub, "sm-sub", "middle");
+    const pick = () => { Object.values(nodes).forEach((n) => n.classList.remove("hl")); nodes[key].classList.add("hl"); document.getElementById("sm-note").textContent = s.note; };
+    g.addEventListener("click", pick);
+    g.addEventListener("keydown", (e) => { if (e.key === "Enter") pick(); });
+  }
+  nodes.open.classList.add("hl");
+  document.getElementById("sm-note").textContent = states.open.note;
+})();
+</script>
+</body>
+</html>

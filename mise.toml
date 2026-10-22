@@ -1,0 +1,10 @@
+# The local toolchain (`mise install`). Pins are exact; bump them together with the CI workflow.
+[settings]
+idiomatic_version_file_enable_tools = []
+
+[tools]
+uv = "0.11.2"
+python = "3.11.14"
+node = "24.20.0"
+just = "1.58.0"
+taplo = "0.9.3"

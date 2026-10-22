@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}API tokens · Foundry{% endblock %}
+{% block body %}
+<h1>API tokens</h1>
+<p class="muted">For scripts and the pipeline: <code>curl -X POST -H "Authorization: Bearer $TOKEN" {{ request.base_url }}api/sources/&lt;id&gt;/refresh</code></p>
+{% if minted %}
+<section class="alert"><strong>Copy it now; it won't be shown again:</strong> <code class="mono">{{ minted }}</code></section>
+{% endif %}
+<form method="post" action="/tokens" class="card row">
+  <input name="name" placeholder="What it's for (e.g. dagster)" required>
+  <button>Make a token</button>
+</form>
+<table>
+  <thead><tr><th>Name</th><th>Made</th><th></th></tr></thead>
+  <tbody>
+  {% for token in tokens %}
+    <tr>
+      <td>{{ token.name }}</td>
+      <td class="muted small">{{ token.created_at.strftime("%b %d %H:%M") }}</td>
+      <td><form method="post" action="/tokens/{{ token.token_hash }}/revoke"><button class="ghost">Revoke</button></form></td>
+    </tr>
+  {% else %}
+    <tr><td colspan="3" class="muted">No tokens yet.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

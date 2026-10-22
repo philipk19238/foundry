@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Help queue · Foundry{% endblock %}
+{% block body %}
+<h1>Help queue</h1>
+<p class="muted">Agents ask here when they hit something they can't do: a CAPTCHA, a phone code, a login wall. Claim one, work in the agent's browser, then mark it done. Only the person who claims a request sees the browser.</p>
+<table>
+  <thead><tr><th>Asked</th><th>Reason</th><th>Status</th><th>Expires</th></tr></thead>
+  <tbody>
+  {% for request_ in requests %}
+    <tr>
+      <td class="muted small">{{ request_.created_at.strftime("%b %d %H:%M") }}</td>
+      <td><a href="/help/{{ request_.id }}">{{ request_.reason }}</a></td>
+      <td>{% with value=request_.status if request_.is_live(now) or request_.status not in ("open", "claimed") else "expired" %}{% include "_status.html" %}{% endwith %}</td>
+      <td class="muted small">{{ request_.expires_at.strftime("%H:%M") }}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="4" class="muted">Nobody has asked for help yet.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

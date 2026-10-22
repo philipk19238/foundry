@@ -1,0 +1,5 @@
+<li class="event {{ event.kind }}">
+  <span class="glyph">{{ {"status": "↻", "message": "●", "command": "$", "tool": "⚙", "file": "✎", "help": "✋", "crawl": "⇣", "error": "✕"}[event.kind] }}</span>
+  <time>{{ event.at.strftime("%H:%M:%S") }}</time>
+  <pre>{{ event.text }}</pre>
+</li>

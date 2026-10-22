@@ -1,0 +1,41 @@
+mutation a field drops its length header
+detects decodeFuel_encode
+- def encodeField (f : Bytes) : Bytes := header f.length ++ f
++ def encodeField (f : Bytes) : Bytes := f
+
+mutation files are kept in portal order
+detects sorted_canonFiles
+- def canonFiles (fs : List Nat) : List Nat := fs.foldr insertSorted []
++ def canonFiles (fs : List Nat) : List Nat := fs
+
+mutation the notice key forgets the due date
+detects notice_same_iff
+-   [tagNotice, l.source, l.externalId, l.title, l.dueAt, l.description, l.metadata]
++   [tagNotice, l.source, l.externalId, l.title, l.description, l.metadata]
+
+mutation the opportunity key includes the title
+detects opportunity_ignores_dynamic
+- def opportunityKey (l : Listing) : List Bytes := [tagOpportunity, l.source, l.externalId]
++ def opportunityKey (l : Listing) : List Bytes := [tagOpportunity, l.source, l.externalId, l.title]
+
+mutation ingest overwrites instead of skipping
+detects ingestAll_idempotent
+- def ingest (catalog : List Bytes) (n : Bytes) : List Bytes := if n ∈ catalog then catalog else catalog ++ [n]
++ def ingest (catalog : List Bytes) (n : Bytes) : List Bytes := catalog ++ [n]
+
+mutation the silent-breakage gate is dropped
+detects silent_breakage_heals
+-   else if c.crashed || decide (c.invalid > 0) || (decide (c.valid = 0) && decide (c.previousValid > 0)) then .heal
++   else if c.crashed || decide (c.invalid > 0) then .heal
+
+mutation heal budget check is off by one
+detects heals_bounded
+-   | .relogin => if h.heals < maxHeals then ⟨.relogin, h.heals + 1⟩ else ⟨.needsHuman, h.heals⟩
+-   | .heal => if h.heals < maxHeals then ⟨.healing, h.heals + 1⟩ else ⟨.needsHuman, h.heals⟩
++   | .relogin => if h.heals < maxHeals then ⟨.relogin, h.heals + 1⟩ else ⟨.needsHuman, h.heals⟩
++   | .heal => if h.heals ≤ maxHeals then ⟨.healing, h.heals + 1⟩ else ⟨.needsHuman, h.heals⟩
+
+mutation a relogin stops spending the budget
+detects relogin_loop_reaches_human
+-   | .relogin => if h.heals < maxHeals then ⟨.relogin, h.heals + 1⟩ else ⟨.needsHuman, h.heals⟩
++   | .relogin => ⟨.relogin, h.heals⟩

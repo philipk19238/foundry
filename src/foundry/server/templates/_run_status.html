@@ -1,0 +1,2 @@
+{% with value=run.status %}{% include "_status.html" %}{% endwith %}
+{% if run.summary %}<span class="small">{{ run.summary }}</span>{% endif %}

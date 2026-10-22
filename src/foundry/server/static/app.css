@@ -1,0 +1,101 @@
+:root {
+  --bg: #f6f5f1;
+  --panel: #ffffff;
+  --ink: #1d1d1b;
+  --muted: #76746c;
+  --line: #e4e1d8;
+  --accent: #2f5bea;
+  --accent-ink: #ffffff;
+  --good: #1f8a4c;
+  --warn: #b7791f;
+  --bad: #c53030;
+  --wait: #7c3aed;
+  --mono: "JetBrains Mono", ui-monospace, monospace;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121211;
+    --panel: #1b1b19;
+    --ink: #ecebe6;
+    --muted: #9a978d;
+    --line: #2e2d29;
+    --accent: #7c9cff;
+    --accent-ink: #0b0b0a;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 Inter, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+main { max-width: 1180px; margin: 0 auto; padding: 24px 16px 64px; display: grid; gap: 24px; }
+h1 { font-size: 24px; margin: 0 0 4px; letter-spacing: -0.01em; }
+h2 { font-size: 15px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 0 0 10px; }
+.muted { color: var(--muted); }
+.small { font-size: 13px; }
+.mono, code, pre { font-family: var(--mono); font-size: 12.5px; }
+.mark { color: var(--accent); }
+
+.bar { display: flex; gap: 24px; align-items: center; padding: 12px 20px; border-bottom: 1px solid var(--line); background: var(--panel); position: sticky; top: 0; z-index: 2; }
+.brand { font-weight: 600; color: var(--ink); font-size: 16px; }
+.bar nav { display: flex; gap: 16px; }
+.bar nav a { color: var(--ink); }
+.who { margin-left: auto; display: flex; gap: 12px; align-items: center; color: var(--muted); font-size: 13px; }
+
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px; }
+.stack { display: grid; gap: 12px; }
+.row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.row input { flex: 1; min-width: 240px; }
+.head { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; align-items: flex-end; }
+.facts { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+
+input, textarea { font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 9px 12px; width: 100%; }
+input:focus, textarea:focus { outline: 2px solid color-mix(in srgb, var(--accent) 40%, transparent); border-color: var(--accent); }
+label { display: grid; gap: 6px; font-size: 13px; color: var(--muted); }
+button { font: inherit; font-weight: 500; background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 8px; padding: 9px 16px; cursor: pointer; transition: transform 0.08s ease, opacity 0.15s ease; }
+button:hover { opacity: 0.92; }
+button:active { transform: scale(0.97); }
+button.ghost { background: transparent; color: var(--ink); border: 1px solid var(--line); }
+
+table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); font-weight: 500; }
+tr:last-child td { border-bottom: 0; }
+td { font-variant-numeric: tabular-nums; }
+
+.pill { display: inline-block; font-size: 12px; font-weight: 500; padding: 2px 9px; border-radius: 999px; background: color-mix(in srgb, var(--muted) 15%, transparent); color: var(--muted); white-space: nowrap; }
+.pill.ready, .pill.succeeded, .pill.done { background: color-mix(in srgb, var(--good) 15%, transparent); color: var(--good); }
+.pill.running, .pill.onboarding, .pill.queued, .pill.claimed, .pill.restarting { background: color-mix(in srgb, var(--accent) 15%, transparent); color: var(--accent); }
+.pill.healing, .pill.relogin, .pill.skipped { background: color-mix(in srgb, var(--warn) 15%, transparent); color: var(--warn); }
+.pill.failed, .pill.needs_human, .pill.expired { background: color-mix(in srgb, var(--bad) 14%, transparent); color: var(--bad); }
+.pill.waiting, .pill.open, .pill.in_review { background: color-mix(in srgb, var(--wait) 15%, transparent); color: var(--wait); }
+.pill.running::before, .pill.waiting::before, .pill.restarting::before { content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: currentColor; margin-right: 6px; vertical-align: 1px; animation: pulse 1.2s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: 0.25; } }
+
+.alert { background: color-mix(in srgb, var(--wait) 10%, var(--panel)); border: 1px solid color-mix(in srgb, var(--wait) 35%, transparent); border-radius: 12px; padding: 12px 16px; display: flex; gap: 14px; flex-wrap: wrap; align-items: center; }
+.error { color: var(--bad); margin: 0; }
+
+.timeline { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.event { display: grid; grid-template-columns: 22px 70px 1fr; gap: 10px; padding: 6px 4px; border-radius: 6px; animation: arrive 0.25s ease-out; }
+.event:hover { background: var(--bg); }
+.event .glyph { text-align: center; color: var(--muted); font-family: var(--mono); }
+.event time { color: var(--muted); font-family: var(--mono); font-size: 12px; padding-top: 2px; }
+.event pre { margin: 0; white-space: pre-wrap; word-break: break-word; }
+.event.message pre { font-family: Inter, system-ui, sans-serif; font-size: 14px; }
+.event.help { background: color-mix(in srgb, var(--wait) 8%, transparent); }
+.event.help .glyph { color: var(--wait); }
+.event.status .glyph { color: var(--accent); }
+.event.error .glyph { color: var(--bad); }
+@keyframes arrive { from { opacity: 0; transform: translateY(4px); } }
+
+.notice { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; margin-bottom: 10px; display: grid; gap: 6px; }
+.notice header { display: grid; gap: 2px; }
+.notice p { margin: 0; }
+.notice footer { display: flex; gap: 14px; flex-wrap: wrap; }
+
+.takeover { display: grid; grid-template-columns: 1fr 300px; gap: 16px; }
+.takeover iframe { width: 100%; height: 72vh; border: 1px solid var(--line); border-radius: 12px; background: #000; }
+@media (max-width: 860px) { .takeover { grid-template-columns: 1fr; } }
+
+.login { max-width: 380px; margin: 12vh auto 0; display: grid; gap: 14px; }
+.login h1 { font-size: 28px; }

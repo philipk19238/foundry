@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}{{ source.name }} · Foundry{% endblock %}
+{% block body %}
+<section class="head">
+  <div>
+    <h1>{{ source.name }}</h1>
+    <a class="muted" href="{{ source.url }}" target="_blank" rel="noopener">{{ source.url }} ↗</a>
+  </div>
+  <div class="facts">
+    {% with value=source.status %}{% include "_status.html" %}{% endwith %}
+    <span>scraper {% if source.scraper_version %}v{{ source.scraper_version }}{% else %}none{% endif %}</span>
+    <span>{{ source.previous_valid }} listings last crawl</span>
+    {% if proposal %}<a href="https://github.com/{{ repo }}/pull/{{ proposal.pull }}" target="_blank" rel="noopener">v{{ proposal.version }} in review: pull request #{{ proposal.pull }} ↗</a>{% endif %}
+  </div>
+</section>
+
+{% if user.is_admin %}
+<section class="card row">
+  {% for kind in kinds %}
+  <form method="post" action="/sources/{{ source.id }}/runs"><input type="hidden" name="kind" value="{{ kind }}"><button class="{{ 'primary' if kind == 'refresh' else 'ghost' }}">{{ kind | capitalize }}</button></form>
+  {% endfor %}
+  <code class="small muted">POST /api/sources/{{ source.id }}/refresh</code>
+</section>
+{% endif %}
+
+<section>
+  <h2>Runs</h2>
+  {% include "_runs.html" %}
+</section>
+
+<section>
+  <h2>Notices <span class="muted small">newest first</span></h2>
+  {% for notice in notices %}
+  <article class="notice">
+    <header>
+      <a href="{{ notice.url }}" target="_blank" rel="noopener"><strong>{{ notice.title }}</strong></a>
+      <span class="muted small">{{ notice.external_id }}{% if notice.buyer %} · {{ notice.buyer }}{% endif %}{% if notice.due_at %} · due {{ notice.due_at.strftime("%b %d, %Y %H:%M %Z") }}{% endif %}</span>
+    </header>
+    {% if notice.description %}<p class="small">{{ notice.description | truncate(320) }}</p>{% endif %}
+    <footer class="small muted">
+      <span class="mono" title="notice_id">n:{{ notice.notice_id[:10] }}</span>
+      <span class="mono" title="opportunity_id">o:{{ notice.opportunity_id[:10] }}</span>
+      {% for file in notice.files %}<a href="/files/{{ notice.notice_id }}/{{ file.file_id }}" target="_blank" rel="noopener">📎 {{ file.name }}</a>{% endfor %}
+    </footer>
+  </article>
+  {% else %}
+  <p class="muted">No notices yet.</p>
+  {% endfor %}
+</section>
+{% endblock %}

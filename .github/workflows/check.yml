@@ -18,7 +18,7 @@ jobs:
       - name: Replay the fixtures of every site this change touches
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            uv run python -m portals.core check --changed "origin/${{ github.base_ref }}"
+            uv run python -m foundry.core check --changed "origin/${{ github.base_ref }}"
           else
-            uv run python -m portals.core check $(uv run python -c "from pathlib import Path; from portals.core.sites import Sites; print(' '.join(s.key for s in Sites(Path('.')).all()))")
+            uv run python -m foundry.core check --all
           fi

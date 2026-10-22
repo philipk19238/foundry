@@ -1,0 +1,3 @@
+{% for request_ in help if request_.status in ("open", "claimed") %}
+<div class="alert"><strong>✋ The agent asked for help:</strong> {{ request_.reason }} <a href="/help/{{ request_.id }}">Take over →</a></div>
+{% endfor %}

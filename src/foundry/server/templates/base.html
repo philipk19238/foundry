@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Foundry{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/app.css">
+  <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+</head>
+<body>
+  {% if user %}
+  <header class="bar">
+    <a class="brand" href="/"><span class="mark">⌁</span> Foundry</a>
+    <nav>
+      <a href="/">Sources</a>
+      <a href="/help">Help queue</a>
+      <a href="/tokens">API tokens</a>
+    </nav>
+    <form method="post" action="/logout" class="who">
+      <span>{{ user.email }} · {{ user.role }}</span>
+      <button class="ghost">Sign out</button>
+    </form>
+  </header>
+  {% endif %}
+  <main>{% block body %}{% endblock %}</main>
+</body>
+</html>

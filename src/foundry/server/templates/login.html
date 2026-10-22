@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Sign in · Foundry{% endblock %}
+{% block body %}
+<section class="login">
+  <h1><span class="mark">⌁</span> Foundry</h1>
+  <p class="muted">Agents that open a portal, find its API, and keep its notices fresh.</p>
+  <form method="post" action="/login" class="card stack">
+    <input type="hidden" name="next" value="{{ next }}">
+    <label>Email <input name="email" type="email" autocomplete="username" required autofocus></label>
+    <label>Password <input name="password" type="password" autocomplete="current-password" required></label>
+    {% if error %}<p class="error">{{ error }}</p>{% endif %}
+    <button>Sign in</button>
+  </form>
+</section>
+{% endblock %}

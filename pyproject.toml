@@ -1,24 +1,114 @@
 [project]
-name = "portals"
+name = "foundry"
 version = "0.1.0"
-description = "Every procurement portal Foundry scrapes: the scraper kit, shared platforms, and buyers"
+description = "Agents that open a procurement portal, find its API, and open a pull request with the scraper"
 requires-python = ">=3.11,<3.12"
-dependencies = ["pydantic>=2.12", "scrapy==2.19.0"]
+dependencies = [
+    "agentmail==2.0.12",
+    "aiosqlite>=0.21",
+    "alembic>=1.16",
+    "argon2-cffi>=25.1",
+    "asyncpg>=0.30",
+    "boto3>=1.40",
+    "cryptography>=45",
+    "fastapi>=0.120",
+    "httpx>=0.28",
+    "jinja2>=3.1",
+    "kernel==0.120.0",
+    "knockapi>=1.20",
+    "mcp>=1.20",
+    "modal==1.6.1",
+    "openai-codex==0.160.1",
+    "playwright>=1.55",
+    "pydantic>=2.12",
+    "pydantic-settings>=2.11",
+    "python-multipart>=0.0.20",
+    "scrapy==2.19.0",
+    "sqlalchemy[asyncio]>=2.0.44",
+    "svcs>=25.1",
+    "uvicorn>=0.38",
+]
+
+[dependency-groups]
+dev = [
+    "boto3-stubs[s3]>=1.43.109",
+    "pytest>=9.1,<10",
+    "pytest-asyncio>=1.2",
+    "ruff>=0.14",
+    "ty>=0.0.1a30",
+]
+
+[project.scripts]
+foundry-check = "foundry.core.__main__:main"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["portals"]
-include = ["portals/**/*.py", "portals/**/*.json", "portals/**/*.toml", "portals/**/*.md"]
+packages = ["src/foundry"]
 
 [tool.uv]
 exclude-newer = "14 days"
 
+[tool.ty.environment]
+python-version = "3.11"
+python-platform = "linux"
+root = ["."]
+
+[tool.ty.analysis]
+strict-literal-narrowing = true
+strict-generic-narrowing = true
+
+[tool.ty.rules]
+blanket-ignore-comment = "error"
+missing-type-argument = "error"
+possibly-unresolved-reference = "warn"
+unsupported-dynamic-base = "warn"
+division-by-zero = "warn"
+possibly-missing-attribute = "warn"
+possibly-missing-import = "warn"
+missing-override-decorator = "ignore"
+
+[tool.ty.terminal]
+error-on-warning = true
+
+[tool.ty.src]
+include = ["src", "tests"]
+
 [tool.ruff]
 target-version = "py311"
 line-length = 120
+exclude = ["src/foundry/app/db/migrations/versions"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I"]
+select = ["E", "F", "I", "TID251"]
+
+[tool.ruff.lint.per-file-ignores]
+"**/tests/**/test_*.py" = ["E402"]
+
+[tool.ruff.format]
+docstring-code-format = true
+docstring-code-line-length = 80
+line-ending = "auto"
+
+[tool.pytest.ini_options]
+minversion = "9.1"
+strict = true
+asyncio_mode = "strict"
+asyncio_default_fixture_loop_scope = "function"
+asyncio_default_test_loop_scope = "function"
+addopts = "--import-mode=importlib -ra --durations=10 --durations-min=1.0"
+xfail_strict = true
+empty_parameter_set_mark = "fail_at_collect"
+faulthandler_timeout = 300
+markers = [
+    "integration: crosses a process, service, database, or storage boundary",
+    "external: requires non-local network access or external credentials",
+    "slow: deterministic test expected to exceed 10 seconds",
+]
+filterwarnings = [
+    "error::pytest.PytestCollectionWarning",
+    "error::pytest.PytestConfigWarning",
+    "error::pytest.PytestReturnNotNoneWarning",
+]
