@@ -51,6 +51,9 @@ class GitHubPulls:
         )
         return FILES.validate_json(found)
 
+    async def comment(self, number: int, body: str) -> None:
+        await self._call("comment on the pull request", "POST", f"issues/{number}/comments", None, {"body": body})
+
     async def merge(self, number: int) -> None:
         """Squash-merges a pull request, as its reviewer would on GitHub; GitHub refuses while required checks fail."""
         await self._call("merge the pull request", "PUT", f"pulls/{number}/merge", None, {"merge_method": "squash"})

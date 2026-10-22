@@ -108,8 +108,9 @@ async def submit(
     - `checks`: what you compared against the portal itself, such as "the portal lists 12 open bids; the crawl
       found 12" or "due dates match the times the page shows".
     - `gaps`: what the scraper can't get yet and why (empty if nothing).
-    After this, end your turn: foundry replays every site your branch touches, crawls the live portal from your
-    branch, and opens the pull request with sample output and how to test it."""
+    After this, end your turn: foundry replays every site your branch touches and opens the pull request, and the
+    scraper goes into review. A test scrape of the live portal starts at once and comments its results on the pull
+    request."""
     async with svcs.Container(ctx.request_context.lifespan_context) as services:
         crawls, proposals = await services.aget(Crawls, Proposals)
         try:
