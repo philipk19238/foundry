@@ -16,8 +16,9 @@ from scrapy.statscollectors import MemoryStatsCollector
 from scrapy.utils.request import request_from_dict
 from twisted.python.failure import Failure
 
+from foundry.core.middlewares import ReplayMiddleware
 from foundry.core.models import FileLink, Fixture, Listing
-from foundry.core.spider import ReplayMiddleware, SessionMiddleware
+from foundry.core.session import SessionMiddleware
 
 SITE = Path(__file__).parents[1] / "src/foundry/buyers/us/ca/california/caleprocure"
 spec = importlib.util.spec_from_file_location("caleprocure", SITE / "scraper.py")
@@ -62,7 +63,8 @@ def run_event(replay, request):
     return output
 
 
-def test_logout_fixture_renewal_rebuilds_each_affected_window(portal):
+@pytest.mark.asyncio
+async def test_logout_fixture_renewal_rebuilds_each_affected_window(portal):
     spider, replay = portal
     spider.events = deque([("2740", "26-134"), ("SS246", "0000040527")])
     interrupted = queued(next(spider.next_event(3)))
@@ -74,7 +76,7 @@ def test_logout_fixture_renewal_rebuilds_each_affected_window(portal):
     assert spider.logged_out(response.replace(url=interrupted.url))
     assert spider.logged_out(response.replace(url="https://caleprocure.ca.gov/?errorCode=127", body=b""))
     with pytest.raises(IgnoreRequest) as expired:
-        SessionMiddleware(None, spider.crawler).process_response(interrupted, response)
+        await SessionMiddleware(None, spider.crawler).process_response(interrupted, response)
     assert list(interrupted.errback(failure(interrupted, expired.value))) == []
     assert not spider.done
 
