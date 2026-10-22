@@ -10,12 +10,13 @@ from foundry.app.auth.auth import Logins
 from foundry.app.auth.models import UserView
 from foundry.app.catalog.catalog import Catalog
 from foundry.app.db.db import now
+from foundry.app.db.models.catalog import ScraperState
 from foundry.app.db.models.runs import RunKind
 from foundry.app.help.help import HelpQueue, RunChat
 from foundry.app.runs.runs import Queue, RunFeed, RunHistory, Timeline
-from foundry.app.scrapers.scrapers import ScraperHistory, Versions
+from foundry.app.scrapers.scrapers import ScraperHistory
 from foundry.app.settings import Settings
-from foundry.server.models import TrialView
+from foundry.server.models import TrialState, TrialView
 from foundry.server.routes.auth import Admin, SignedIn
 
 router = APIRouter(default_response_class=HTMLResponse)
@@ -45,18 +46,20 @@ async def add_source(url: Annotated[str, Form()], services: Admin) -> Response:
 
 @router.get("/sources/{source_id}")
 async def source(request: Request, source_id: uuid.UUID, services: SignedIn) -> Response:
-    templates, user, catalog, runs, versions, settings = await services.aget(
-        Jinja2Templates, UserView, Catalog, RunHistory, Versions, Settings
+    templates, user, catalog, runs, settings = await services.aget(
+        Jinja2Templates, UserView, Catalog, RunHistory, Settings
     )
+    scrapers = await (await services.aget(ScraperHistory)).of_source(source_id)
+    recent = await runs.of_source(source_id)
     context = {
         "user": user,
         "source": await catalog.source(source_id),
-        "proposal": await versions.proposed(source_id),
-        "scrapers": await (await services.aget(ScraperHistory)).of_source(source_id),
+        "newest": next((scraper for scraper in scrapers if scraper.state != ScraperState.CLOSED), None),
+        "scrapers": scrapers,
+        "tried": TrialState.of(await runs.last(source_id, RunKind.TRIAL), recent),
         "repo": settings.repo,
-        "runs": await runs.of_source(source_id),
+        "runs": recent,
         "notices": await catalog.notices(source_id),
-        "kinds": list(RunKind),
     }
     return templates.TemplateResponse(request, "source.html", context)
 
