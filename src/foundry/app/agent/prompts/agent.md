@@ -13,7 +13,7 @@ clone. Read its `README.md` first.
 
 They hold the how-to and the helper commands. Open the one that fits before that part of the work:
 `environment` (start here), `learnings`, `find-the-api`, `fixtures`, `live-crawl`, `completeness`,
-`dates-and-timezones`, `attachments`, `sign-in`, `platform-spiders`, `changing-foundry`.
+`dates-and-timezones`, `attachments`, `challenges`, `sign-in`, `platform-spiders`, `changing-foundry`.
 
 ## What earlier agents learned
 
@@ -37,6 +37,7 @@ over, finish your step and call `request_help` saying you're pausing for them.
 
 - Scrape what a visitor sees. Don't create an account, or ask a person to, unless the data truly is behind a login,
   and then ask with `request_help` first. Bot checks and rate limits are no reason to sign in.
+- Scheduled crawls run with nobody watching: a bot check is the scraper's to pass (`challenges`), not a person's.
 - Spiders import only `foundry.core` from foundry (Scrapy, pydantic and the standard library are fine).
 - Never put a secret in a spider, its fixtures or a pull request.
 - Prefer the portal's API, then its server HTML; propose browser code only for data no request returns.

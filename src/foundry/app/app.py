@@ -68,6 +68,8 @@ class Refresher:
         access = await self._accounts.access(source.id)
         async with self._mirror.tree(scraper.commit) as tree:
             report = await self._crawls.live(tree, source.id, scraper.site, access, source.previous_valid)
+        if report.session is not None and report.session.cookies:
+            await self._accounts.save_session(lease, report.session)
         notices = [ScrapedNotice(source_id=source.id, listing=listing) for listing in report.listings]
         files = {
             notice.notice_id: await self._downloads.fetch(notice.listing, access.session)

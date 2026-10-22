@@ -115,7 +115,9 @@ class Crawls:
         bot checks."""
         site = self.site(tree, key)
         async with self._browsers.bare(source_id) as browser:
-            return await self._run(tree, site, access, None, browser.cdp_url, previous_valid)
+            report = await self._run(tree, site, access, None, browser.cdp_url, previous_valid)
+            headers = access.session.headers if access.session is not None else {}
+            return report.model_copy(update={"session": await self._browsers.session(browser, headers)})
 
     async def replay(self, tree: Path, key: str) -> models.CrawlReport:
         site = self.site(tree, key)
@@ -147,6 +149,7 @@ class Crawls:
                 fixtures=fixtures,
                 browser=browser,
                 home=site.url,
+                delay=site.delay,
             )
             (root / "job.json").write_text(job.model_dump_json())
             process = await asyncio.create_subprocess_exec(

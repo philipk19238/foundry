@@ -4,7 +4,6 @@ every portal, so a spider holds only what is particular to its site or platform.
 
 import asyncio
 import base64
-import contextlib
 from collections.abc import Iterable, Iterator
 from pathlib import Path
 from types import ModuleType
@@ -14,7 +13,6 @@ from urllib.parse import urlsplit
 import scrapy
 from playwright.async_api import Browser, Page, Playwright, async_playwright
 from playwright.async_api import Error as PlaywrightError
-from playwright.async_api import TimeoutError as PlaywrightTimeout
 from pydantic import ValidationError
 from scrapy import signals
 from scrapy.crawler import Crawler
@@ -23,10 +21,12 @@ from scrapy.http import Headers, Request, Response, TextResponse
 from scrapy.responsetypes import responsetypes
 from scrapy.statscollectors import StatsCollector
 
+from foundry.core import challenges
 from foundry.core.models import Fixture, Listing, Session
 
 LOGGED_OUT = "foundry/logged_out"
 REFUSED = "foundry/refused"
+CHALLENGED = "foundry/challenged"
 VALID = "foundry/valid"
 INVALID = "foundry/invalid"
 UNMATCHED = "foundry/unmatched"
@@ -41,9 +41,14 @@ class PortalSpider(scrapy.Spider):
     signed-in session is sent with every request; `self.credentials` holds the portal's other saved secrets.
 
     A platform spider (`platforms/<name>/spider.py`) serves many buyers: each buyer's `buyer.toml` names its `tenant`,
-    which arrives as `self.tenant`."""
+    which arrives as `self.tenant`.
+
+    A portal that puts bot checks in front of its pages sets `solve = True` (or `meta={"solve": True}` on the
+    requests that meet them): a live crawl then waits for the stealth browser to clear each check and sends the
+    request again. Without it a check stops that request, and the crawl reports where."""
 
     tenant: str = ""
+    solve: bool = False
 
     custom_settings = {
         "ROBOTSTXT_OBEY": False,
@@ -109,8 +114,9 @@ FETCH = """async ({url, method, headers, body}) => {
   return {url: response.url, status: response.status, headers: [...response.headers], body: btoa(binary)};
 }"""
 DROPPED = {"content-encoding", "content-length", "transfer-encoding"}
-CHALLENGES = {("x-amzn-waf-action", "challenge"), ("cf-mitigated", "challenge")}
-CHALLENGE_TRIES = 3
+SOLVE_TRIES = 3
+CHALLENGES_KEPT = 5
+SOLVE_SECONDS = 90.0
 SOLVED_FOR = 5.0
 
 
@@ -136,11 +142,12 @@ class BrowserMiddleware:
     """Sends every request from inside a stealth browser, when the crawl was given one: a page on the portal passes
     its bot checks once, then each request runs as that page's `fetch`, with the browser's address, fingerprint and
     cookies. The response is what plain HTTP would have returned, so spiders and their fixtures don't change. A
-    request the portal page may not fetch (another site without CORS) runs from a page on its own site. A firewall
-    that challenges a request mid-crawl (AWS WAF, Cloudflare) is answered the way a browser answers it: the request
-    is opened as a page, whose script earns the token, and sent again."""
+    request the portal page may not fetch (another site without CORS) runs from a page on its own site. A bot check
+    (`challenges.challenged`) is cleared only for a spider that asks to `solve`: the request is opened as a page,
+    watched until the check clears, and sent again. Otherwise it is counted and the request dropped."""
 
-    def __init__(self, cdp_url: str, home: str, session: Session | None) -> None:
+    def __init__(self, crawler: Crawler, cdp_url: str, home: str, session: Session | None) -> None:
+        self._crawler = crawler
         self._cdp_url = cdp_url
         self._home = home
         self._session = session
@@ -158,7 +165,7 @@ class BrowserMiddleware:
             raise NotConfigured("no browser for this crawl")
         raw = crawler.settings.get("FOUNDRY_SESSION")
         middleware = cls(
-            cdp_url, crawler.settings.get("FOUNDRY_HOME"), Session.model_validate_json(raw) if raw else None
+            crawler, cdp_url, crawler.settings.get("FOUNDRY_HOME"), Session.model_validate_json(raw) if raw else None
         )
         crawler.signals.connect(middleware.close, signal=signals.spider_closed)
         return middleware
@@ -172,11 +179,20 @@ class BrowserMiddleware:
             body=base64.b64encode(request.body).decode() if request.body else None,
         )  # fmt: skip
         got = await self._fetch(self._home, sent)
-        for _ in range(CHALLENGE_TRIES):
-            if not CHALLENGES & {(key.lower(), value.lower()) for key, value in got["headers"]}:
+        solve = request.meta.get("solve", getattr(self._crawler.spider, "solve", False))
+        for _ in range(SOLVE_TRIES if solve else 0):
+            if not self._challenged(sent, got):
                 break
             await self._solve(request.url)
             got = await self._fetch(request.url, sent)
+        if self._challenged(sent, got):
+            assert self._crawler.stats is not None
+            stats = self._crawler.stats
+            stats.inc_value(CHALLENGED)
+            if (count := stats.get_value(CHALLENGED, 0)) <= CHALLENGES_KEPT:
+                example = f"{request.url} ({got['status']}): a bot check at {got['url']}"
+                stats.set_value(f"{EXAMPLE}challenge/{count}", example[:500])
+            raise IgnoreRequest(f"challenged at {request.url}")
         headers = Headers([(key, value) for key, value in got["headers"] if key.lower() not in DROPPED])
         body = base64.b64decode(got["body"])
         kind = responsetypes.from_args(headers=headers, url=got["url"], body=body)
@@ -189,16 +205,18 @@ class BrowserMiddleware:
         except PlaywrightError:
             return await (await self._page(sent["url"])).evaluate(FETCH, sent)
 
+    def _challenged(self, sent: Sent, got: Fetched) -> bool:
+        headers = dict(got["headers"])
+        text = base64.b64decode(got["body"])[:20_000].decode(errors="replace")
+        return challenges.challenged(sent["url"], got["url"], got["status"], headers, text)
+
     async def _solve(self, url: str) -> None:
-        """Opens a challenged `url` as a page, so the browser runs the challenge and keeps the token it earns. Requests
-        challenged together wait for one solve."""
+        """Opens a challenged `url` as a page and waits for the browser's solver to clear it, so the browser keeps the
+        token it earns. Requests challenged together wait for one solve."""
         async with self._solving:
             if asyncio.get_running_loop().time() - self._solved_at < SOLVED_FOR:
                 return
-            page = await self._page(url)
-            await page.goto(url, wait_until="load")
-            with contextlib.suppress(PlaywrightTimeout):
-                await page.wait_for_load_state("networkidle", timeout=15_000)
+            await challenges.clear(await self._page(url), url, SOLVE_SECONDS)
             self._solved_at = asyncio.get_running_loop().time()
 
     async def _page(self, url: str) -> Page:

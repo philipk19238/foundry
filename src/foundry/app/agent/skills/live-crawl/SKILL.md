@@ -19,13 +19,15 @@ pass before you submit; making it pass is your job.
 Each request runs as a `fetch` from a page on the portal, so responses are what plain HTTP returns and the spider
 needs no browser code. `fetch` drops the `Cookie`, `User-Agent` and `Referer` headers a spider sets; the page sends
 its own, with the browser's cookies. Other headers (`Accept`, a tenant id, a bearer token) go through. A firewall
-challenge (AWS WAF, Cloudflare) is answered by opening the request as a page and sending it again.
+check (AWS WAF, Cloudflare, a reCAPTCHA browser check) stops the request unless the spider sets `solve`; the
+`challenges` skill covers it.
 
 ## Reading the errors
 
 | What you see | What it means | Fix |
 |---|---|---|
-| `(429)`, `(202)` with an empty body, or bodies that stop being JSON partway | the spider is faster than the portal allows | slow it in `custom_settings`: `DOWNLOAD_DELAY` (start at 1-2 s), `CONCURRENT_REQUESTS_PER_DOMAIN: 1`, `AUTOTHROTTLE_TARGET_CONCURRENCY: 1`; retry them with `RETRY_HTTP_CODES` including 429 and 202 |
+| `(429)`, `(202)` with an empty body, or bodies that stop being JSON partway | the spider is faster than the portal allows | pace the portal in `buyer.toml` (`delay = 2` on its `[[portals]]` entry); retry them with `RETRY_HTTP_CODES` including 429 and 202 |
+| `N stopped by bot checks` | a check stood in front of those requests | the `challenges` skill: `solve`, then `solve = True` and pacing |
 | `refused with 401/403` on the first request | a header the portal's own page sends is missing, or the portal really needs a sign-in | compare with the page's request in your recording; see `sign-in` |
 | `(400)` or `(404)` on some records | the spider builds a URL the portal doesn't have for them (a closed bid, a missing tab) | skip what the portal doesn't have, without failing the listing |
 | a crash or `KeyError` on a 200 | the parsing is wrong for some records | fix the parser; capture that record into the fixtures |
