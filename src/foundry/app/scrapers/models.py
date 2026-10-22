@@ -105,12 +105,6 @@ class Crawl(BaseModel, frozen=True):
             return Verdict.HEAL
         return Verdict.HEALTHY
 
-    @property
-    def blocked(self) -> bool:
-        """The portal turned away a plain crawl. Bot checks answer the way an expired session does, so a stealth
-        browser gets the next try either way."""
-        return self.auth_failed and not self.browser
-
 
 class Health(BaseModel, frozen=True):
     status: SourceStatus
