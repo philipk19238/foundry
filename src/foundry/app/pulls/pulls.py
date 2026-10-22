@@ -47,10 +47,11 @@ class Proposals:
     of its own, which the scraper's Test tab follows and which comments its results on the pull request."""
 
     def __init__(
-        self, clones: Clones, pulls: GitHubPulls, crawls: Crawls, catalog: Catalog,
+        self, clones: Clones, mirror: Mirror, pulls: GitHubPulls, crawls: Crawls, catalog: Catalog,
         versions: Versions, timeline: Timeline, settings: Settings,
     ) -> None:  # fmt: skip
         self._clones = clones
+        self._mirror = mirror
         self._pulls = pulls
         self._crawls = crawls
         self._catalog = catalog
@@ -58,21 +59,30 @@ class Proposals:
         self._timeline = timeline
         self._base_url = settings.base_url
 
-    async def propose(self, lease: Lease, checkout: Path, submission: handoff.Submission) -> outcomes.Outcome:
-        await self._clones.commit(checkout, submission.title)
-        changed = await self._clones.changed(checkout)
+    async def propose(
+        self, lease: Lease, checkout: Path, branch: str, submission: handoff.Submission
+    ) -> outcomes.Outcome:
+        """Checks and pushes what the agent committed: the replays run on that commit's own files, so the pull request
+        holds exactly what passed."""
+        commit = await self._clones.take(checkout, branch)
+        changed = await self._clones.changed(commit)
         if not changed:
-            return outcomes.Rejection(reason="the branch changes nothing")
-        try:
-            touched = {site.key for site in Sites(checkout).touched(changed)} | {submission.site}
-        except (OSError, ValueError) as error:
-            return outcomes.Rejection(reason=f"the buyer registry does not load: {error}")
-        replays = {key: await self._crawls.replay(checkout, key) for key in sorted(touched)}
+            return outcomes.Rejection(
+                reason="the branch changes nothing (commit your work: uncommitted files aren't taken)"
+            )
+        async with self._mirror.tree(commit) as tree:
+            try:
+                touched = {site.key for site in Sites(tree).touched(changed)} | {submission.site}
+            except (OSError, ValueError) as error:
+                return outcomes.Rejection(reason=f"the buyer registry does not load: {error}")
+            replays = {key: await self._crawls.replay(tree, key) for key in sorted(touched)}
         failed = [key for key, report in replays.items() if not self.passed(report)]
         if failed:
             return outcomes.Rejection(reason=f"the replay fails for {', '.join(failed)}")
-        await self._timeline.log(lease.run_id, EventKind.STATUS, f"Replays pass for {', '.join(replays)}.")
-        branch = await self._clones.push(checkout)
+        await self._timeline.log(
+            lease.run_id, EventKind.STATUS, f"Replays pass for {', '.join(replays)} at {commit[:12]}."
+        )
+        await self._clones.push(commit, branch)
         source = await self._catalog.source(lease.source_id)
         body = self.describe(lease, source.url, branch, submission, replays)
         pull = await self._pulls.open(branch, submission.title, body)

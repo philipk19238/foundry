@@ -14,6 +14,6 @@ description: Fix foundry's own code when it is what blocks you - a missing tool,
 3. **`propose_change`** with what changes, the blocker, and how you tested it; its fields fill the pull request.
 4. **`request_help`** asking a person to review and merge it, with the link.
 5. Once it's merged, **`restart`** and end your turn. The run comes back on the new code, in this same
-   conversation, with your clone moved onto it.
+   conversation; rebase your branch onto `origin/main` to have the change in your checkout too.
 
 Keep scraper work and foundry changes apart: a change pull request holds only the fix.

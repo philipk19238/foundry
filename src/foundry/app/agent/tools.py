@@ -144,16 +144,15 @@ async def submit(
 async def propose_change(
     title: str, summary: str, blocker: str, testing: list[str], ctx: Context[svcs.Registry]
 ) -> str:
-    """Open a pull request with everything your branch changes, for a change to foundry itself: your tools, prompts,
-    the browser or agent code, or the shared core. `summary` says what changes, `blocker` what stopped you without
-    it, and `testing` how you checked it (commands you ran and what they showed). A person reviews it. Ask them to
-    merge it with `request_help` (include the link), and once it is merged call `restart` to carry on with the new
-    code."""
+    """Open a pull request with everything your branch's commits change (commit first), for a change to foundry
+    itself: your tools, prompts, the browser or agent code, or the shared core. `summary` says what changes, `blocker`
+    what stopped you without it, and `testing` how you checked it (commands you ran and what they showed). A person
+    reviews it. Ask them to merge it with `request_help` (include the link), and once it is merged call `restart` to
+    carry on with the new code."""
     change = handoff.Change(title=title, summary=summary, blocker=blocker, testing=tuple(testing))
     async with svcs.Container(ctx.request_context.lifespan_context) as services:
         clones, pulls, proposals = await services.aget(Clones, GitHubPulls, Proposals)
-        await clones.commit(WORKSPACE.checkout, title)
-        branch = await clones.push(WORKSPACE.checkout)
+        branch = await clones.push(await clones.take(WORKSPACE.checkout, WORKSPACE.branch), WORKSPACE.branch)
         pull = await pulls.open(branch, title, proposals.describe_change(CONTEXT.run_id, change))
     WORKSPACE.change_pulls.keep(handoff.ChangePull(number=pull.number, url=pull.html_url))
     return f"Opened {pull.html_url}."
@@ -161,16 +160,21 @@ async def propose_change(
 
 @server.tool()
 async def restart(ctx: Context[svcs.Registry]) -> str:
-    """Restart this run on the latest `main`, so changes to foundry merged since it started take effect. You keep
-    this conversation, your checkout (moved onto the new `main`, with uncommitted work kept) and the portal's
-    browser profile; the browser itself is a new one. After this, end your turn."""
+    """Restart this run on the latest `main`, so changes to foundry's own code (tools, prompts, the agent) merged since
+    it started take effect. You keep this conversation, your checkout and the portal's browser profile; the browser
+    itself is a new one. After this, end your turn. To pick up a kit change for your `live` runs, you don't need
+    this: rebase your branch onto `origin/main`."""
     async with svcs.Container(ctx.request_context.lifespan_context) as services:
         clones, mirror, pulls, settings = await services.aget(Clones, Mirror, GitHubPulls, Settings)
         change = WORKSPACE.change_pulls.read()
         if change is not None and not (await pulls.get(change.number)).merged:
             return f"{change.url} is not merged yet. Ask a person to merge it with `request_help`, then try again."
-        if change is None and await clones.ahead(WORKSPACE.checkout):
-            return "Your branch has commits main doesn't. Open a pull request with `propose_change` first."
+        if change is None and await clones.ahead(await clones.take(WORKSPACE.checkout, WORKSPACE.branch)):
+            return (
+                "Your branch has commits main doesn't. To pick up what was merged to main, rebase onto it yourself "
+                "(`git fetch origin main && git rebase origin/main`); to change foundry itself, open a pull request "
+                "with `propose_change` first."
+            )
         main = await mirror.main()
     if main == settings.deployed_commit:
         return str(exceptions.NothingToDeploy(main))

@@ -4,6 +4,7 @@ from typing import Literal
 from pydantic import BaseModel
 
 BRANCHES = "agents/"
+RUN_REFS = "refs/runs/"  # where the mirror keeps runs' commits, apart from the branches it fetches from GitHub
 
 
 class Head(BaseModel, frozen=True):

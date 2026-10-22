@@ -195,13 +195,9 @@ class Workspaces:
         shutil.copytree(SKILLS, workspace.skills)
         await self._clones.clone(workspace.folder, workspace.branch)
         if workspace.restarts.asked() is not None:
-            await self._clones.onto_main(workspace.checkout)
             workspace.change_pulls.forget()
             workspace.restarts.came_back()
             start = handoff.Start.RESTARTED
-        elif start == handoff.Start.REOPENED and await self._clones.landed(workspace.checkout):
-            await self._clones.onto_main(workspace.checkout)
-            workspace.change_pulls.forget()
         return workspace, start
 
 
@@ -262,6 +258,8 @@ class Codex:
             "mcp_servers.foundry.startup_timeout_sec=60",
             'mcp_servers.foundry.default_tools_approval_mode="approve"',
             "sandbox_workspace_write.network_access=true",
+            # The agent owns its checkout's git (workspace_write keeps `.git` read-only otherwise); foundry pushes.
+            f"sandbox_workspace_write.writable_roots={json.dumps([str(workspace.checkout / '.git')])}",
             'shell_environment_policy.inherit="core"',
             f"shell_environment_policy.set={self._shell(browser, workspace)}",
         )
@@ -370,7 +368,7 @@ class Agent:
             return outcomes.Restart(commit=commit)
         submission = workspace.submissions.read()
         if submission is not None:
-            outcome = await self._proposals.propose(lease, workspace.checkout, submission)
+            outcome = await self._proposals.propose(lease, workspace.checkout, workspace.branch, submission)
             workspace.submissions.forget()
             return outcome
         if isinstance(task, tasks.Relogin) and start != handoff.Start.REOPENED:
