@@ -14,7 +14,8 @@ The pure rules of the foundry catalog, transcribed from the Python:
 * `Standing.working` / `Standing.settled`  foundry/app/scrapers/models.py, called from foundry/app/app.py
   `App._build` and `App._review`.
 * `opportunities`  foundry/app/catalog/store.py `_RANKED` joined on `rank == 1` in `_OPPORTUNITIES`.
-* `limited` / `wentThrough`  foundry/core/pace.py `Pace.limited` / `Pace.went_through` (section 11).
+* `limited` / `wentThrough`  foundry/core/pace.py `Pace.limited` / `Pace.went_through`, and `paced`
+  foundry/core/middlewares.py `BrowserMiddleware._paced` (section 11).
 * `uploadStep` / `crawlStep`  foundry/app/scrapers/scrapers.py `Uploads.upload_new` against
   foundry/core/pipelines.py `FilesPipeline` under crashes and lost containers (section 12).
 
@@ -910,21 +911,31 @@ def vectorHeader : List String := [
 
 /-! ## 11. Pace: how long the stealth browser waits between requests to one site
 
-foundry/core/pace.py `Pace`, in milliseconds (`SLOWEST = 60.0` s is 60000). `limited` is `Pace.limited` with
-`retry_after` None read as 0 (the Python's `retry_after or 0.0`); `wentThrough` is `Pace.went_through` for any easing
-that never raises the delay (the Python's `delay * EASING`, EASING = 0.8). -/
+foundry/core/pace.py `Pace`, in milliseconds (`SLOWEST = 60.0` s is 60000, `FIRST_SLOWDOWN = 0.25` s is 250).
+`limited` is `Pace.limited` with `retry_after` None read as 0 (the Python's `if retry_after` treats both alike): it
+gives the site's new pace and the one-off wait before its next turn (`self._next[site]` becomes at least now + wait).
+`wentThrough` is `Pace.went_through` for any easing that never raises the delay (the Python's
+`self._delays[site] * EASING`, EASING = 0.5). `paced` is `BrowserMiddleware._paced` in foundry/core/middlewares.py. -/
 
 def slowest : Nat := 60000
-def firstSlowdown : Nat := 1000
+def firstSlowdown : Nat := 250
 
-/-- `min(SLOWEST, max(self._delays[site] * 2 or FIRST_SLOWDOWN, retry_after or 0.0))`. -/
-def limited (d ra : Nat) : Nat := min slowest (max (if d * 2 = 0 then firstSlowdown else d * 2) ra)
+structure Limited where
+  pace : Nat
+  wait : Nat
+deriving Repr, BEq
+
+/-- `slower = max(self._base, min(SLOWEST, max(self._delays[site] * 2, FIRST_SLOWDOWN)))`;
+`wait = min(SLOWEST, retry_after) if retry_after else slower`. -/
+def limited (base d ra : Nat) : Limited :=
+  let slower := max base (min slowest (max (d * 2) firstSlowdown))
+  ⟨slower, if ra = 0 then slower else min slowest ra⟩
 
 /-- `max(self._base, self._delays[site] * EASING)`. -/
 def wentThrough (ease : Nat → Nat) (base d : Nat) : Nat := max base (ease d)
 
-/-- EASING = 0.8, rounded down to the millisecond (the Python does not round; see `eases_to_base`). -/
-def ease45 (d : Nat) : Nat := d * 4 / 5
+/-- EASING = 0.5, rounded down to the millisecond (the Python does not round; see `eases_to_base`). -/
+def half (d : Nat) : Nat := d / 2
 
 inductive PaceEvent where
   | ok
@@ -933,92 +944,187 @@ deriving Repr, BEq
 
 def paceStep (ease : Nat → Nat) (base d : Nat) : PaceEvent → Nat
   | .ok => wentThrough ease base d
-  | .limit ra => limited d ra
+  | .limit ra => (limited base d ra).pace
 
 def paceRun (ease : Nat → Nat) (base d : Nat) (es : List PaceEvent) : Nat := es.foldl (paceStep ease base) d
 
-theorem limited_le_slowest (d ra : Nat) : limited d ra ≤ slowest := by
-  unfold limited; exact Nat.min_le_left _ _
+/-- A `Retry-After` never holds the site back more than a minute, however long the portal asks for. -/
+theorem retry_after_wait_le_slowest (base d ra : Nat) (h : 0 < ra) : (limited base d ra).wait ≤ slowest := by
+  simp only [limited]; split <;> omega
 
-theorem paceStep_in_range (ease : Nat → Nat) (hE : ∀ x, ease x ≤ x) (base d : Nat) (hb : base ≤ slowest)
-    (h : base ≤ d ∧ d ≤ slowest) (e : PaceEvent) :
-    base ≤ paceStep ease base d e ∧ paceStep ease base d e ≤ slowest := by
+/-- Any rate limit waits at most max(base, SLOWEST): a bare one waits the new pace, which is over a minute only when
+the base pace is. -/
+theorem limited_wait_le (base d ra : Nat) : (limited base d ra).wait ≤ max base slowest := by
+  simp only [limited]; split <;> omega
+
+/-- A `Retry-After` is a one-off wait: the pace a limit sets is the same with or without one. -/
+theorem limited_pace_ignores_retry_after (base d ra : Nat) :
+    (limited base d ra).pace = (limited base d 0).pace := rfl
+
+/-- Every rate limit slows the site to at least FIRST_SLOWDOWN, however far successes had eased it. -/
+theorem limited_at_least_first (base d ra : Nat) : firstSlowdown ≤ (limited base d ra).pace := by
+  simp only [limited, slowest, firstSlowdown]; omega
+
+/-- Below the cap a rate limit at least doubles the pace. -/
+theorem limited_doubles (base d ra : Nat) (h : d * 2 ≤ slowest) : d * 2 ≤ (limited base d ra).pace := by
+  simp only [limited]; omega
+
+/-- A first rate limit from no delay waits FIRST_SLOWDOWN, and slows the site to it. -/
+theorem first_limit_waits_first :
+    (limited 0 0 0).wait = firstSlowdown ∧ (limited 0 0 0).pace = firstSlowdown := by
+  decide
+
+theorem paceStep_in_range (ease : Nat → Nat) (hE : ∀ x, ease x ≤ x) (base d : Nat)
+    (h : base ≤ d ∧ d ≤ max base slowest) (e : PaceEvent) :
+    base ≤ paceStep ease base d e ∧ paceStep ease base d e ≤ max base slowest := by
   have := hE d
   cases e with
   | ok => simp only [paceStep, wentThrough]; omega
-  | limit ra => simp only [paceStep, limited]; split <;> omega
+  | limit ra => simp only [paceStep, limited]; omega
 
-/-- With a base pace of at most a minute, the delay never leaves [base, SLOWEST], whatever the portal answers and
-whatever `Retry-After` it sends. -/
-theorem pace_in_range (ease : Nat → Nat) (hE : ∀ x, ease x ≤ x) (base : Nat) (hb : base ≤ slowest)
-    (es : List PaceEvent) : base ≤ paceRun ease base base es ∧ paceRun ease base base es ≤ slowest := by
-  suffices ∀ d, base ≤ d ∧ d ≤ slowest → base ≤ paceRun ease base d es ∧ paceRun ease base d es ≤ slowest from
-    this base ⟨Nat.le_refl _, hb⟩
+/-- For every base pace, the delay never leaves [base, max(base, SLOWEST)], whatever the portal answers and whatever
+`Retry-After` it sends. -/
+theorem pace_in_range (ease : Nat → Nat) (hE : ∀ x, ease x ≤ x) (base : Nat) (es : List PaceEvent) :
+    base ≤ paceRun ease base base es ∧ paceRun ease base base es ≤ max base slowest := by
+  suffices ∀ d, base ≤ d ∧ d ≤ max base slowest →
+      base ≤ paceRun ease base d es ∧ paceRun ease base d es ≤ max base slowest from
+    this base ⟨Nat.le_refl _, Nat.le_max_left _ _⟩
   induction es with
   | nil => intro d h; exact h
-  | cons e es ih => intro d h; exact ih _ (paceStep_in_range ease hE base d hb h e)
+  | cons e es ih => intro d h; exact ih _ (paceStep_in_range ease hE base d h e)
 
-/-- Recall for `pace_in_range`: a base pace slower than SLOWEST is cut to SLOWEST by a rate limit, so the site is
-asked faster after a 429 than before it. -/
-theorem slow_base_limited_below_base : limited 90000 0 < 90000 := by decide
+/-- Pre-fix: before the `max(self._base, ...)` floor, pace.py set `slower = min(SLOWEST, max(delay * 2,
+FIRST_SLOWDOWN))`, so a base pace slower than SLOWEST was cut to SLOWEST by a rate limit and the site was asked faster
+after a 429 than before it. Recall for `pace_in_range`. -/
+def limitedPreFix (d : Nat) : Nat := min slowest (max (d * 2) firstSlowdown)
 
-/-- Exact easing (no rounding): after n successes from d the Python's delay is max(base, d * 0.8^n), and that is
-base once d * 4^n ≤ base * 5^n. From anywhere in range, 50 successes bring any base of at least 1 ms back to base. -/
-theorem eases_to_base (base d : Nat) (hb : 1 ≤ base) (hd : d ≤ slowest) : d * 4 ^ 50 ≤ base * 5 ^ 50 := by
-  have h1 : d * 4 ^ 50 ≤ slowest * 4 ^ 50 := Nat.mul_le_mul_right _ hd
-  have h2 : slowest * 4 ^ 50 ≤ 1 * 5 ^ 50 := Nat.le_of_ble_eq_true rfl
-  have h3 : 1 * 5 ^ 50 ≤ base * 5 ^ 50 := Nat.mul_le_mul_right _ hb
-  exact Nat.le_trans h1 (Nat.le_trans h2 h3)
+theorem pre_fix_slow_base_limited_below_base : limitedPreFix 90000 < 90000 := by decide
 
-/-- The bound is tight for a one-second base: from SLOWEST it takes 19 successes, and 18 are not enough. -/
-theorem one_second_base_needs_19 : slowest * 4 ^ 19 ≤ 1000 * 5 ^ 19 ∧ ¬ slowest * 4 ^ 18 ≤ 1000 * 5 ^ 18 :=
-  ⟨Nat.le_of_ble_eq_true rfl, Nat.not_le_of_gt (Nat.le_of_ble_eq_true rfl)⟩
+/-- Exact easing (no rounding): after n successes from d the Python's delay is max(base, d * 0.5^n), and that is
+base once d ≤ base * 2^n. From anywhere in range, 16 successes bring any base of at least 1 ms back to base. -/
+theorem eases_to_base (base d : Nat) (hb : 1 ≤ base) (hd : d ≤ slowest) : d ≤ base * 2 ^ 16 := by
+  have h : (2 : Nat) ^ 16 = 65536 := rfl
+  rw [h]; unfold slowest at hd; omega
 
-/-- With base 0 (a site with no `delay`, the default) exact easing never gets back to 0: there is no bound. -/
-theorem zero_base_never_returns (n : Nat) : 0 < firstSlowdown * 4 ^ n := Nat.mul_pos (by decide) (Nat.pow_pos (by decide))
+/-- The bound is tight for a 1 ms base (15 successes leave SLOWEST above it), and a one-second base needs 6. -/
+theorem one_ms_base_needs_16 : ¬ slowest ≤ 1 * 2 ^ 15 := by decide
+theorem one_second_base_needs_6 : slowest ≤ 1000 * 2 ^ 6 ∧ ¬ slowest ≤ 1000 * 2 ^ 5 := by decide
 
-/-- The `or` floor only applies at exactly 0: with base 0, one rate limit, then four requests that went through, the
-next bare 429 slows the site to 0.818 s, less than FIRST_SLOWDOWN, and it keeps shrinking with more successes. -/
-theorem quiet_spell_limits_below_first :
-    paceRun ease45 0 0 [.limit 0, .ok, .ok, .ok, .ok, .limit 0] < firstSlowdown := by decide
+/-- With base 0 (a site with no `delay`, the default) exact easing never gets back to 0, but each limit is back at
+FIRST_SLOWDOWN (`limited_at_least_first`), so a quiet spell no longer makes the next limit shorter. -/
+theorem zero_base_never_returns (n : Nat) : ¬ firstSlowdown ≤ 0 * 2 ^ n := by simp [firstSlowdown]
 
-/-- The fix: `max(self._delays[site] * 2, FIRST_SLOWDOWN, retry_after or 0.0)` capped at SLOWEST. -/
-def limitedFixed (d ra : Nat) : Nat := min slowest (max (max (d * 2) firstSlowdown) ra)
+/-- Halving in the model: n successes from d take the delay to max(base, d / 2^n). -/
+theorem halves (base : Nat) : ∀ n d, base ≤ d → paceRun half base d (List.replicate n .ok) = max base (d / 2 ^ n) := by
+  intro n
+  induction n with
+  | zero => intro d h; simp only [paceRun, List.replicate, List.foldl, Nat.pow_zero, Nat.div_one]; omega
+  | succ n ih =>
+    intro d h
+    have step := ih (paceStep half base d .ok) (Nat.le_max_left _ _)
+    simp only [paceRun, List.replicate_succ, List.foldl_cons] at step ⊢
+    rw [step]
+    simp only [paceStep, wentThrough, half]
+    rw [Nat.pow_succ, Nat.mul_comm (2 ^ n) 2, ← Nat.div_div_eq_div_mul]
+    cases Nat.le_total base (d / 2) with
+    | inl hle => rw [Nat.max_eq_right hle]
+    | inr hle =>
+      rw [Nat.max_eq_left hle]
+      have h1 : d / 2 / 2 ^ n ≤ base / 2 ^ n := Nat.div_le_div_right hle
+      have h2 : base / 2 ^ n ≤ base := Nat.div_le_self _ _
+      omega
 
-theorem limitedFixed_at_least_first (d ra : Nat) : firstSlowdown ≤ limitedFixed d ra := by
-  unfold limitedFixed slowest firstSlowdown; omega
+/-- From anywhere in range, 16 successes bring the delay back to base. -/
+theorem halves_back_to_base (base d : Nat) (h : base ≤ d) (hd : d ≤ slowest) :
+    paceRun half base d (List.replicate 16 .ok) = base := by
+  rw [halves base 16 d h]
+  have h16 : (2 : Nat) ^ 16 = 65536 := rfl
+  have : d / 2 ^ 16 = 0 := Nat.div_eq_of_lt (by rw [h16]; unfold slowest at hd; omega)
+  rw [this]; omega
 
-theorem limitedFixed_doubles (d ra : Nat) (h : firstSlowdown ≤ d * 2) (h' : d * 2 ≤ slowest) :
-    d * 2 ≤ limitedFixed d ra := by
-  unfold limitedFixed; omega
+/-- The old pace, `self._delays[site] * 2 or FIRST_SLOWDOWN`: after two successes from a first limit at base 0 the
+next bare 429 slows the site to 0.124 s, under FIRST_SLOWDOWN. `limited_at_least_first` is what rules it out. -/
+def limitedOr (d : Nat) : Nat := min slowest (if d * 2 = 0 then firstSlowdown else d * 2)
 
--- Bounded search: from every delay in range, at bases 0, 1 s and 60 s, one step stays in range.
-#guard [0, 1000, 60000].all fun base => (List.range 61).all fun k =>
-  let d := max base (k * 1000)
-  [PaceEvent.ok, .limit 0, .limit 5000, .limit 120000].all fun e =>
-    let d' := paceStep ease45 base d e
-    decide (base ≤ d') && decide (d' ≤ slowest)
+theorem old_or_quiet_spell_below_first : limitedOr (paceRun half 0 0 [.limit 0, .ok, .ok]) < firstSlowdown := by
+  decide
 
--- A first rate limit from no delay waits FIRST_SLOWDOWN (what the `or` is for).
-#guard limited 0 0 == firstSlowdown
+-- Bounded search: from every delay in range, at bases 0, 250 ms, 1 s, 60 s and 90 s, one step stays in range, no
+-- wait is over max(base, SLOWEST), and no Retry-After wait over SLOWEST.
+#guard [0, 250, 1000, 60000, 90000].all fun base => (List.range 241).all fun k =>
+  let d := max base (k * 250)
+  [PaceEvent.ok, .limit 0, .limit 1, .limit 5000, .limit 120000].all fun e =>
+    let d' := paceStep half base d e
+    decide (base ≤ d') && decide (d' ≤ max base slowest) &&
+      match e with
+      | .limit ra => decide ((limited base d ra).wait ≤ max base slowest) && (ra == 0 || decide ((limited base d ra).wait ≤ slowest))
+      | .ok => true
 
--- Reach: a burst of limits gets to SLOWEST, and successes then bring a one-second base back to base.
-#guard paceRun ease45 1000 1000 (List.replicate 7 (.limit 0)) == slowest
-#guard paceRun ease45 1000 slowest (List.replicate 19 .ok) == 1000
+-- A first rate limit from no delay waits FIRST_SLOWDOWN; a Retry-After is waited (capped), and the pace only doubles.
+#guard limited 0 0 0 == ⟨firstSlowdown, firstSlowdown⟩
+#guard limited 0 2000 7000 == ⟨4000, 7000⟩
+#guard limited 0 2000 120000 == ⟨4000, slowest⟩
+-- A base pace over SLOWEST is kept: a bare limit waits the base, a Retry-After is still capped.
+#guard limited 90000 90000 0 == ⟨90000, 90000⟩
+#guard limited 90000 90000 120000 == ⟨90000, slowest⟩
+
+-- Reach: a burst of limits gets to SLOWEST, and successes then bring a one-second base back to base in 6, not 5.
+#guard paceRun half 1000 1000 (List.replicate 6 (.limit 0)) == slowest
+#guard paceRun half 1000 slowest (List.replicate 6 .ok) == 1000
+#guard paceRun half 1000 slowest (List.replicate 5 .ok) != 1000
+
+def rateTries : Nat := 5
+
+/-- What one fetch in `_paced` got: no rate limit, or a rate limit with its `Retry-After` (0 for none) and whether
+it is a bot check (`self._challenged`). -/
+inductive Answer where
+  | through
+  | limit (retryAfter : Nat) (challenged : Bool)
+deriving Repr, BEq
+
+/-- The pace events `BrowserMiddleware._paced` applies over `left` turns, the first counted as try `tries`:
+`went_through` and return, hand the answer back, or `limited` and try again. -/
+def paced (solve hurrying : Bool) (tries : Nat) : Nat → List Answer → List PaceEvent
+  | 0, _ => []
+  | _ + 1, [] => []
+  | _ + 1, .through :: _ => [.ok]
+  | left + 1, .limit ra ch :: rest =>
+    if hurrying || (decide (tries > 0) && !solve && ch) then []
+    else .limit ra :: paced solve hurrying (tries + 1) left rest
+
+/-- A bot check a spider can't solve slows the site once: one slower try, then it is handed back. -/
+theorem unsolvable_check_one_slower_try (ra₀ ra₁ : Nat) (rest : List Answer) :
+    paced false false 0 rateTries (.limit ra₀ true :: .limit ra₁ true :: rest) = [.limit ra₀] := by
+  simp [paced, rateTries]
+
+-- A spider that solves bot checks keeps trying, slower, for every try; a plain 429 does too; a stopping crawl
+-- hands the first limit back.
+#guard paced true false 0 rateTries (List.replicate 6 (.limit 0 true)) == List.replicate 5 (.limit 0)
+#guard paced false false 0 rateTries (List.replicate 6 (.limit 0 false)) == List.replicate 5 (.limit 0)
+#guard paced false true 0 rateTries [.limit 0 false] == []
+#guard paced false false 0 rateTries [.limit 3000 false, .through] == [.limit 3000, .ok]
 
 def PaceEvent.py : PaceEvent → String
   | .ok => "ok"
   | .limit ra => s!"limit {ra}"
 
 def paceCases : List (Nat × List PaceEvent) := [
-  (0, [.limit 0]), (0, [.limit 0, .limit 0]), (0, [.limit 0, .ok]), (0, [.limit 0, .ok, .ok, .ok, .ok, .limit 0]),
+  (0, [.limit 0]), (0, [.limit 0, .limit 0]), (0, [.limit 0, .ok]), (0, [.limit 0, .ok, .ok, .limit 0]),
   (0, [.limit 7000]), (0, [.limit 120000]), (500, [.limit 0]), (500, [.limit 0, .ok, .ok]),
-  (1000, [.limit 0, .limit 0, .limit 0]), (1000, List.replicate 7 (.limit 0)),
-  (1000, List.replicate 7 (.limit 0) ++ [.ok, .ok]), (2000, [.limit 3000]), (2000, [.limit 0, .limit 90000]),
+  (1000, [.limit 0, .limit 0, .limit 0]), (1000, List.replicate 6 (.limit 0)),
+  (1000, List.replicate 6 (.limit 0) ++ [.ok, .ok]), (2000, [.limit 3000]), (2000, [.limit 0, .limit 90000]),
   (90000, [.limit 0])]
 
-def paceVectors : List String := paceCases.map fun (base, es) =>
-  s!"pace {base} {(paceRun ease45 base base es)} {String.intercalate "," (es.map PaceEvent.py)}"
+def limitCases : List (Nat × Nat × Nat) :=
+  [(0, 0, 0), (0, 0, 7000), (0, 0, 120000), (0, 100, 0), (0, 2000, 0), (0, 2000, 3000), (0, 40000, 0),
+   (0, 40000, 90000), (1000, 1000, 0), (5000, 5000, 3000), (60000, 60000, 0), (90000, 90000, 0),
+   (90000, 90000, 7000), (90000, 90000, 120000)]
+
+def paceVectors : List String :=
+  paceCases.map (fun (base, es) =>
+    s!"pace {base} {(paceRun half base base es)} {String.intercalate "," (es.map PaceEvent.py)}") ++
+  limitCases.map fun (base, d, ra) =>
+    s!"limit {base} {d} {ra} {(limited base d ra).pace} {(limited base d ra).wait}"
 
 /-! ## 12. Uploads: the `uploaded` cursor over files.jsonl, under crashes and lost containers
 
@@ -1193,11 +1299,16 @@ def uploadVectors : List String := [
 #eval IO.println (String.intercalate "\n" ((
   ["# Generated by #eval in FoundryRules.lean from paceRun and drain. Do not edit.",
    "# pace <base ms> <delay after, ms> <events>    Pace(base / 1000, 1, stats): `ok` is went_through(site),",
-   "#   `limit R` is limited(site, R / 1000 or None for 0); compare within 1 ms per ok (the model rounds down)."]
+   "#   `limit R` is limited(site, R / 1000 or None for 0); compare within 1 ms per ok (the model rounds down).",
+   "# limit <base ms> <delay ms> <R ms> <pace ms> <wait ms>    Pace(base / 1000, 1, stats) with the site's delay at",
+   "#   <delay>: limited(site, R / 1000 or None for 0) returns <wait> and sets the delay to <pace>."]
   ++ paceVectors ++ uploadVectors).map ("RESUMEVEC " ++ ·)))
 
 #print axioms pace_in_range
 #print axioms eases_to_base
-#print axioms limitedFixed_at_least_first
+#print axioms limited_wait_le
+#print axioms retry_after_wait_le_slowest
+#print axioms halves_back_to_base
+#print axioms unsolvable_check_one_slower_try
 
 end Foundry

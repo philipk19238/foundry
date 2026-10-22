@@ -61,7 +61,7 @@ class Pace:
         """Slows `site` down after a rate limit: its next turn waits, for every request to it, and the seconds are
         returned. A `Retry-After` is a pause the portal asked for, once: the site waits that long, and its pace only
         doubles."""
-        slower = min(SLOWEST, max(self._delays[site] * 2, FIRST_SLOWDOWN))
+        slower = max(self._base, min(SLOWEST, max(self._delays[site] * 2, FIRST_SLOWDOWN)))
         self._delays[site] = slower
         wait = min(SLOWEST, retry_after) if retry_after else slower
         self._next[site] = max(self._next[site], asyncio.get_running_loop().time() + wait)
