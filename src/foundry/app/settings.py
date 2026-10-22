@@ -48,7 +48,8 @@ class Settings(BaseSettings):
     credentials_key: SecretStr
 
     openai_api_key: SecretStr
-    codex_model: str | None = None
+    codex_model: str = "gpt-6.1-sol"
+    codex_effort: Literal["low", "medium", "high", "xhigh"] = "medium"
     kernel_api_key: SecretStr
     knock_secret_key: SecretStr
     knock_workflow: str = "foundry-help-requested"

@@ -9,23 +9,30 @@
   <div class="facts" id="run-status">{% include "_run_status.html" %}</div>
 </section>
 
-<section class="chat card">
-  <ol class="lines" id="chat">
-    {% for event in events if event.in_chat %}{% include "_chat_line.html" %}{% endfor %}
+<section class="c-chat">
+  <ol class="c-lines" id="chat">
+    {% for event in events if event.in_chat %}{% include "_chat_line.html" %}{% else %}
+    <li class="c-empty" id="chat-empty">The agent's messages will show up here.</li>
+    {% endfor %}
   </ol>
-  <section id="help-box">{% include "_help_box.html" %}</section>
-  {% if run.is_active %}
-  <form class="composer" method="post" action="/runs/{{ run.id }}/messages"
-        hx-post="/runs/{{ run.id }}/messages" hx-swap="none" hx-on::after-request="if (event.detail.successful) this.reset()">
-    <textarea name="text" rows="2" required placeholder="Tell the agent something, or answer its question…"
-              onkeydown="if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) this.form.requestSubmit()"></textarea>
-    <div class="row">
-      <button>Send</button>
-      <button class="ghost" formaction="/runs/{{ run.id }}/takeover" hx-post="/runs/{{ run.id }}/takeover" formnovalidate>Pause the agent so I can take over</button>
-      <span class="small muted">⌘↵ sends. It reaches the agent mid-task.</span>
-    </div>
-  </form>
-  {% endif %}
+  {% set doing = (events | rejectattr("in_chat") | list | last) if events else none %}
+  {% include "_ticker.html" %}
+  <div class="c-dock">
+    <section id="help-box">{% include "_help_box.html" %}</section>
+    {% if run.is_active %}
+    <form class="c-composer" method="post" action="/runs/{{ run.id }}/messages"
+          hx-post="/runs/{{ run.id }}/messages" hx-swap="none" hx-on::after-request="if (event.detail.successful) this.reset()">
+      <textarea name="text" rows="1" required placeholder="Message the agent…"
+                oninput="this.style.height = 'auto'; this.style.height = Math.min(this.scrollHeight, 200) + 'px'"
+                onkeydown="if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); this.form.requestSubmit(); }"></textarea>
+      <div class="c-actions">
+        <button type="button" class="c-ghost" hx-post="/runs/{{ run.id }}/takeover" hx-swap="none" title="Asks the agent to pause and hand you its browser">✋ Take over</button>
+        <button class="c-send" aria-label="Send">↑</button>
+      </div>
+    </form>
+    <p class="c-hint">Enter sends, Shift+Enter for a new line. Messages reach the agent while it works.</p>
+    {% endif %}
+  </div>
 </section>
 
 <details class="card">
@@ -36,4 +43,15 @@
 </details>
 {% set after = events[-1].id if events else 0 %}
 {% include "_poller.html" %}
+<script>
+  (() => {
+    const chat = document.getElementById("chat");
+    const nearBottom = () => window.innerHeight + window.scrollY >= document.body.scrollHeight - 160;
+    new MutationObserver(() => {
+      document.getElementById("chat-empty")?.remove();
+      if (nearBottom()) window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
+    }).observe(chat, { childList: true });
+    window.scrollTo(0, document.body.scrollHeight);
+  })();
+</script>
 {% endblock %}

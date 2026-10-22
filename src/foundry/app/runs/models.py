@@ -17,6 +17,7 @@ class EventKind(enum.StrEnum):
     HELP = "help"
     PERSON = "person"
     ANSWER = "answer"
+    NOTE = "note"
     CRAWL = "crawl"
     ERROR = "error"
 
@@ -40,7 +41,7 @@ class RunView(BaseModel):
         return self.status in (RunStatus.QUEUED, RunStatus.RUNNING, RunStatus.WAITING, RunStatus.RESTARTING)
 
 
-CHAT = (EventKind.MESSAGE, EventKind.PERSON, EventKind.ANSWER, EventKind.HELP)
+CHAT = (EventKind.MESSAGE, EventKind.PERSON, EventKind.ANSWER, EventKind.HELP, EventKind.NOTE)
 
 
 class EventView(BaseModel):

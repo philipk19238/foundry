@@ -15,6 +15,7 @@ from openai_codex.generated.v2_all import (
     FileChangeThreadItem,
     ItemCompletedNotification,
     McpToolCallThreadItem,
+    ReasoningEffort,
     TurnCompletedNotification,
 )
 
@@ -251,6 +252,7 @@ class Codex:
                     approval_mode=ApprovalMode.deny_all,
                     cwd=cwd,
                     developer_instructions=instructions,
+                    model=self._settings.codex_model,
                     sandbox=Sandbox.workspace_write,
                 )
                 prompt = (
@@ -258,7 +260,7 @@ class Codex:
                     .read_text()
                     .format(commit=self._settings.deployed_commit or "(local)", session_id=browser.session_id)
                 )
-            turn = await thread.turn(prompt)
+            turn = await thread.turn(prompt, effort=ReasoningEffort(self._settings.codex_effort))
             delivery = asyncio.create_task(self._inbox.deliver(context.run_id, workspace, turn))
             try:
                 async for event in turn.stream():

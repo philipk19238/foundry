@@ -2,7 +2,6 @@
 commits, and per-run clones whose branches are pushed to GitHub. Nothing here pushes to `main`; a person merges."""
 
 import asyncio
-import base64
 import contextlib
 import email.utils
 import shutil
@@ -19,6 +18,7 @@ from foundry.app.settings import Settings
 GIT_TIMEOUT = 300
 OUTPUT_TAIL = 2000
 CHECKOUT = "foundry"
+CREDENTIALS = '!f() { echo username=x-access-token; echo "password=$FOUNDRY_GIT_TOKEN"; }; f'
 
 
 class Git:
@@ -32,15 +32,11 @@ class Git:
         return await self._exec(folder, args, {})
 
     async def authorized(self, folder: Path, token: SecretStr, *args: str) -> str:
-        """Runs git with the token sent as an HTTP header, passed in the environment so it never lands in a config
-        file or the process list."""
-        basic = base64.b64encode(f"x-access-token:{token.get_secret_value()}".encode()).decode()
-        header = {
-            "GIT_CONFIG_COUNT": "1",
-            "GIT_CONFIG_KEY_0": "http.https://github.com/.extraheader",
-            "GIT_CONFIG_VALUE_0": f"AUTHORIZATION: basic {basic}",
-        }
-        return await self._exec(folder, args, header)
+        """Runs git with the token handed over by a one-command credential helper that reads it from this process's
+        environment, so it never lands in a config file or the process list. (Works on any git; the container's
+        is older than `GIT_CONFIG_COUNT`.)"""
+        helper = ("-c", "credential.helper=", "-c", f"credential.helper={CREDENTIALS}")
+        return await self._exec(folder, (*helper, *args), {"FOUNDRY_GIT_TOKEN": token.get_secret_value()})
 
     async def succeeds(self, folder: Path, *args: str) -> bool:
         try:
