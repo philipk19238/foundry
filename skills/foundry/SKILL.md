@@ -121,6 +121,11 @@ touches, and then it is reviewed exactly like an agent's.
 `snapshots` counts how often the portal changed it. `get_file_link(notice_id, file_id)` gives a short-lived download
 link for an attachment.
 
+Everything a portal sent is kept too, as bronze. `get_bronze(run_id)` links a HAR of every response a scrape got
+(attachments aside, what signs in hidden); an opportunity's `run_id` is the scrape that stored it. Use it to check a
+field against what the portal actually returned. `get_recordings(run_id)` links what an agent job recorded while it
+found the portal's API.
+
 A refresh or test scrape that went quiet or failed carries on where it got to after `restart_scrape(run_id)`.
 
 ## Don't

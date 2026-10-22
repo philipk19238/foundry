@@ -147,6 +147,8 @@ class FileView(BaseModel):
 
 
 class NoticeView(BaseModel):
+    """A stored notice; `run_id` is the crawl that stored it, None for one stored before notices kept it."""
+
     model_config = ConfigDict(from_attributes=True)
 
     notice_id: str
@@ -159,6 +161,7 @@ class NoticeView(BaseModel):
     description: str
     metadata: dict[str, JsonValue]
     first_seen_at: dt.datetime
+    run_id: uuid.UUID | None
     files: list[FileView]
 
 

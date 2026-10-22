@@ -35,6 +35,11 @@ restarted it) carries on where it got to. When it carries on, it sends the spide
 everything already sent, so set what the spider learns once (a tenant's name, its time zone) in `start`'s callbacks
 or in `cb_kwargs`, never in a callback a resumed crawl won't reach again.
 
+Foundry's own crawls (scheduled and test scrapes) also keep everything the portal sent: every response but the
+attachments, as a HAR on the run, without the session's cookies and `Authorization` header, so a person can see
+exactly what a scrape got. The `live` command keeps nothing; record with `find-the-api` when you need the traffic
+yourself.
+
 Each default is the best practice; a portal with a quirk overrides it in the spider or in `buyer.toml`:
 
 | Default | Override |

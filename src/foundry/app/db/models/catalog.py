@@ -56,7 +56,8 @@ class Buyer(Base):
 
 class Notice(Base):
     """One version of an opportunity. `opportunity_id` hashes what never changes (portal and portal id); `notice_id`
-    hashes everything, so an edit on the portal is a new row and a re-scrape of the same content is no row."""
+    hashes everything, so an edit on the portal is a new row and a re-scrape of the same content is no row. `run_id`
+    is the crawl that first stored it, whose bronze holds what the portal sent for it."""
 
     __tablename__ = "notices"
     __table_args__ = (
@@ -75,6 +76,7 @@ class Notice(Base):
     description: Mapped[str] = mapped_column(Text)
     metadata_: Mapped[dict[str, JsonValue]] = mapped_column("metadata", Json)
     first_seen_at: Mapped[dt.datetime] = mapped_column(UtcDateTime)
+    run_id: Mapped[uuid.UUID | None]
 
 
 class File(Base):

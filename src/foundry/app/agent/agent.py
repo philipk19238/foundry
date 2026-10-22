@@ -24,6 +24,8 @@ from openai_codex.generated.v2_all import (
 from foundry.app import exceptions
 from foundry.app.agent.models import handoff, outcomes, tasks
 from foundry.app.auth.auth import Users
+from foundry.app.bronze.bronze import Recordings, RunRecordings
+from foundry.app.bronze.models import Recording
 from foundry.app.browser.browser import Accounts, Browsers
 from foundry.app.browser.models import Browser
 from foundry.app.core.models import Lease
@@ -151,6 +153,7 @@ class Workspace:
         self.submissions = Submissions(folder)
         self.change_pulls = ChangePulls(folder)
         self.restarts = Restarts(folder)
+        self.recordings = RunRecordings(folder)
         self._thread = folder / "thread.txt"
         self._read = folder / "chat.txt"
 
@@ -314,13 +317,15 @@ class Codex:
 
 class Agent:
     """Carries out one agent task on a source, in a Kernel browser on the source's profile, and turns what the agent
-    hands in into a pull request, a fresh session, or a restart on newly merged code."""
+    hands in into a pull request, a fresh session, or a restart on newly merged code. Once the agent finishes, the
+    browser recordings it made in its clone are kept in the bucket."""
 
     def __init__(
         self, browsers: Browsers, accounts: Accounts, workspaces: Workspaces, codex: Codex, proposals: Proposals,
-        timeline: Timeline, runs: Runs, settings: Settings,
+        timeline: Timeline, runs: Runs, recordings: Recordings, settings: Settings,
     ) -> None:  # fmt: skip
         self._runs = runs
+        self._recordings = recordings
         self._browsers = browsers
         self._accounts = accounts
         self._workspaces = workspaces
@@ -357,6 +362,9 @@ class Agent:
                 await self._accounts.save_session(lease, await self._browsers.session(browser, {}))
             finally:
                 await self._runs.watching(lease.run_id, None)
+        workspace.recordings.keep(
+            await self._recordings.keep(workspace.checkout, await self._accounts.secrets(lease.source_id))
+        )
         commit = workspace.restarts.asked()
         if commit is not None:
             return outcomes.Restart(commit=commit)
@@ -370,6 +378,10 @@ class Agent:
         if start != handoff.Start.FRESH:
             return outcomes.Reply()
         return outcomes.Rejection(reason="the agent ended without calling submit")
+
+    def recordings(self, run_id: uuid.UUID) -> list[Recording]:
+        """The browser recordings the run's agent made, as kept when it last finished."""
+        return self._workspaces.of(run_id).recordings.read()
 
     async def unread(self, run_id: uuid.UUID) -> bool:
         """Whether people wrote in the run's chat after the agent last read it, as when they wrote while foundry was

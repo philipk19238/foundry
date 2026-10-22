@@ -11,6 +11,7 @@ from foundry.app.browser import models, store
 from foundry.app.core.models import Lease
 from foundry.app.db.db import Sessionmaker, now
 from foundry.app.db.models.access import Credential
+from foundry.core.bronze import Secrets
 from foundry.core.models import Access, Cookie, Session
 
 PAGE_STATE = "() => [location.origin, Object.fromEntries(Object.entries(sessionStorage)), navigator.userAgent]"
@@ -142,6 +143,12 @@ class Accounts:
         async with self._sessionmaker.begin() as session:
             if not await store.set_account(session, lease, account.username, sealed):
                 raise exceptions.LeaseLost()
+
+    async def secrets(self, source_id: uuid.UUID) -> Secrets:
+        """What signs in to the portal, to hide in what is kept of it: the password, the credentials and the session."""
+        access, account = await self.access(source_id), await self.account(source_id)
+        named = [*access.credentials.values(), *([account.password] if account is not None else [])]
+        return Secrets(named, access.session)
 
     async def session(self, source_id: uuid.UUID) -> Session | None:
         async with self._sessionmaker() as session:

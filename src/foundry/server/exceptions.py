@@ -13,6 +13,8 @@ _STATUS = (
     (exceptions.RunNotFound, status.HTTP_404_NOT_FOUND),
     (exceptions.HelpNotFound, status.HTTP_404_NOT_FOUND),
     (exceptions.FileNotFound, status.HTTP_404_NOT_FOUND),
+    (exceptions.NoBronze, status.HTTP_404_NOT_FOUND),
+    (exceptions.RecordingNotFound, status.HTTP_404_NOT_FOUND),
     (exceptions.HelpTaken, status.HTTP_409_CONFLICT),
     (exceptions.NoAgent, status.HTTP_409_CONFLICT),
     (exceptions.SourceBusy, status.HTTP_409_CONFLICT),

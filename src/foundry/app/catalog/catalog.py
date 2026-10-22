@@ -60,8 +60,8 @@ class Catalog:
         notices: Sequence[models.ScrapedNotice],
         files: Mapping[str, Sequence[models.StoredFile]],
     ) -> models.IngestCounts:
-        """Stores what is new, with ``files`` by notice id; a repeat stores nothing, so a crawl can run any number of
-        times."""
+        """Stores what is new, with ``files`` by notice id, each notice with the run that stored it; a repeat stores
+        nothing, so a crawl can run any number of times."""
         batch = list({notice.notice_id: notice for notice in notices}.values())
         async with self._sessionmaker.begin() as session:
             if not await store.fenced(session, lease):
@@ -71,7 +71,7 @@ class Catalog:
             fresh = [notice for notice, change in zip(batch, changes) if change != models.Change.UNCHANGED]
             buyers = {notice.buyer_id: notice.listing.buyer for notice in fresh}
             await store.add_buyers(session, {key: name for key, name in buyers.items() if key and name})
-            await store.add_notices(session, fresh, files, now())
+            await store.add_notices(session, fresh, files, now(), lease.run_id)
         return models.IngestCounts(
             new=changes.count(models.Change.NEW),
             amended=changes.count(models.Change.AMENDMENT),
@@ -95,6 +95,11 @@ class Opportunities:
     async def notices(self, source_id: uuid.UUID) -> list[models.NoticeView]:
         async with self._sessionmaker() as session:
             return await store.notices(session, source_id, NOTICE_PAGE)
+
+    async def run_of(self, notice_id: str) -> uuid.UUID | None:
+        """The crawl that stored a notice, or None for one stored before notices kept it."""
+        async with self._sessionmaker() as session:
+            return await store.run_of(session, notice_id)
 
     async def file(self, notice_id: str, file_id: str) -> models.FileView:
         async with self._sessionmaker() as session:

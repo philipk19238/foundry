@@ -17,6 +17,7 @@ from foundry.app import exceptions
 from foundry.app.agent.agent import Agent, Codex, Inbox, Narrator, Workspaces
 from foundry.app.agent.models import outcomes, tasks
 from foundry.app.auth.auth import Logins, Users
+from foundry.app.bronze.bronze import Bronze, Recordings
 from foundry.app.browser.browser import Accounts, Browsers, Credentials
 from foundry.app.browser.client import KernelBrowserApi
 from foundry.app.browser.models import BrowserApi
@@ -89,7 +90,7 @@ class Refresher:
         files = {notice.notice_id: notice.stored_files(saved) for notice in await self._catalog.unseen(notices)}
         ingested = await self._catalog.ingest(lease, notices, files)
         health = await self._healths.record(lease, Health(status=source.status, heals=source.heals), report.crawl)
-        return RefreshReport(crawl=report.crawl, ingested=ingested, health=health)
+        return RefreshReport(crawl=report.crawl, ingested=ingested, health=health, bronze=report.bronze)
 
     async def trial(self, scraper: ScraperView, run: RunView) -> CrawlReport:
         """One live crawl with any version, from its own code, storing nothing but the attachments it downloads."""
@@ -224,6 +225,7 @@ class Jobs:
         stats: dict[str, JsonValue] = {
             "crawl": refreshed.crawl.model_dump(mode="json"),
             **refreshed.ingested.model_dump(),
+            "bronze": refreshed.bronze.model_dump() if refreshed.bronze is not None else None,
         }
         await self._runs.finish(run, RunStatus.SUCCEEDED, refreshed.summary, stats)
         return NEXT.get(refreshed.health.status)
@@ -234,25 +236,28 @@ class Jobs:
         if working is not None:
             await self._healths.set(lease, working)
         outcome = await self._agent.run(lease, task)
+        stats: dict[str, JsonValue] = {
+            "recordings": [recording.model_dump() for recording in self._agent.recordings(run.id)]
+        }
         match outcome:
             case outcomes.ScraperPull(version=version, url=url):
                 await self._healths.set(lease, SourceStatus.READY if standing.live else SourceStatus.IN_REVIEW)
-                await self._runs.finish(run, RunStatus.SUCCEEDED, f"proposed scraper version {version}: {url}")
+                await self._runs.finish(run, RunStatus.SUCCEEDED, f"proposed scraper version {version}: {url}", stats)
                 return RunKind.TRIAL
             case outcomes.Restart(commit=commit):
                 await self._timeline.log(run.id, EventKind.STATUS, f"Restarting on main at {commit[:12]}.")
                 await self._pauses.restart(run.id)
                 return None
             case outcomes.FreshSession():
-                await self._runs.finish(run, RunStatus.SUCCEEDED, "signed in again and saved the session")
+                await self._runs.finish(run, RunStatus.SUCCEEDED, "signed in again and saved the session", stats)
                 return RunKind.REFRESH
             case outcomes.Reply():
                 await self._healths.set(lease, standing.settled())
-                await self._runs.finish(run, RunStatus.SUCCEEDED, "replied without changing the scraper")
+                await self._runs.finish(run, RunStatus.SUCCEEDED, "replied without changing the scraper", stats)
                 return None
             case outcomes.Rejection(reason=reason):
                 await self._healths.set(lease, standing.rejected(run.kind))
-                await self._runs.finish(run, RunStatus.FAILED, reason)
+                await self._runs.finish(run, RunStatus.FAILED, reason, stats)
                 return None
             case _:
                 assert_never(outcome)
@@ -267,6 +272,7 @@ class Jobs:
             "scraper": scraper.model_dump(mode="json"),
             "crawl": report.crawl.model_dump(mode="json"),
             "listings": [listing.model_dump(mode="json") for listing in report.listings],
+            "bronze": report.bronze.model_dump() if report.bronze is not None else None,
         }
         crawl = report.crawl
         summary = f"tried v{scraper.version} ({scraper.state}): {crawl.verdict}, {crawl.valid} listings"
@@ -381,7 +387,8 @@ def register(registry: svcs.Registry) -> None:
     services = (
         Users, Logins, Catalog, Timeline, Leases, Runs, Attempts, Pauses, RunHistory, RunChanges, RunFeed, HelpQueue,
         HelpDesk, Browsers, Crawls, Credentials, Accounts, Workspaces, Narrator, Inbox, Codex, Versions, ScraperHistory,
-        Healths, GitHubPulls, Proposals, Agent, Refresher, Opportunities, Tracker, Imports, Learnings,
+        Healths, GitHubPulls, Proposals, Agent, Refresher, Opportunities, Tracker, Imports, Learnings, Bronze,
+        Recordings,
     )  # fmt: skip
     for service in services:
         registry.register_factory(service, svcs.aautowire(service))

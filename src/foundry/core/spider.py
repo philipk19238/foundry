@@ -16,6 +16,7 @@ REFUSED = "foundry/refused"
 CHALLENGED = "foundry/challenged"
 FILES_SAVED = "foundry/files_saved"
 FILES_FAILED = "foundry/files_failed"
+BRONZE = "foundry/bronze"
 HTTP_ERROR = 400
 VALID = "foundry/valid"
 INVALID = "foundry/invalid"

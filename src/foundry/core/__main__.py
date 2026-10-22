@@ -74,6 +74,8 @@ async def crawl(job: CrawlJob) -> None:
         middlewares["foundry.core.middlewares.ReplayMiddleware"] = 950
     if job.browser is not None:
         middlewares["foundry.core.middlewares.BrowserMiddleware"] = 960
+    if job.bronze is not None:
+        middlewares["foundry.core.bronze.BronzeMiddleware"] = 990
     settings = Settings(
         {
             "TWISTED_REACTOR_ENABLED": False,
@@ -90,6 +92,7 @@ async def crawl(job: CrawlJob) -> None:
             "FOUNDRY_FILES": str(job.files) if job.files is not None else "",
             "FOUNDRY_KNOWN_FILES": job.known_files,
             "FOUNDRY_PROGRESS": str(job.progress) if job.progress is not None else "",
+            "FOUNDRY_BRONZE": str(job.bronze) if job.bronze is not None else "",
             "FOUNDRY_LISTINGS": str(job.listings),
             "FOUNDRY_SESSION": job.session.model_dump_json() if job.session is not None else "",
             "FOUNDRY_CREDENTIALS": job.credentials,

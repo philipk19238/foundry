@@ -4,7 +4,10 @@ import uuid
 
 from fastapi import APIRouter
 
+from foundry.app import exceptions
 from foundry.app.auth.models import UserView
+from foundry.app.bronze.bronze import Bronze
+from foundry.app.bronze.models import BronzeLink, RecordingLink
 from foundry.app.catalog.catalog import Catalog, Opportunities
 from foundry.app.catalog.models import NoticeView, SourceView
 from foundry.app.db.models.runs import RunKind
@@ -53,3 +56,27 @@ async def run(run_id: uuid.UUID, services: SignedIn) -> RunView:
 async def events(run_id: uuid.UUID, services: SignedIn, after: int = 0) -> list[EventView]:
     timeline = await services.aget(Timeline)
     return await timeline.since(run_id, after)
+
+
+@router.get("/runs/{run_id}/bronze")
+async def bronze(run_id: uuid.UUID, services: SignedIn) -> BronzeLink:
+    """A short-lived link to the HAR of everything the portal sent the run's crawl."""
+    link = await (await services.aget(Bronze)).har(run_id)
+    if link is None:
+        raise exceptions.NoBronze(f"run {run_id}")
+    return link
+
+
+@router.get("/notices/{notice_id}/bronze")
+async def notice_bronze(notice_id: str, services: SignedIn) -> BronzeLink:
+    """A short-lived link to the HAR of the crawl that stored the notice."""
+    link = await (await services.aget(Bronze)).of_notice(notice_id)
+    if link is None:
+        raise exceptions.NoBronze(f"notice {notice_id}")
+    return link
+
+
+@router.get("/runs/{run_id}/recordings")
+async def recordings(run_id: uuid.UUID, services: SignedIn) -> list[RecordingLink]:
+    """Short-lived links to the browser recordings the run's agent made."""
+    return await (await services.aget(Bronze)).recordings(run_id)

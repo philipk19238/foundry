@@ -156,3 +156,13 @@ class CrawlStalled(Error):
 class CannotRestart(Error):
     def __init__(self, run_id: uuid.UUID) -> None:
         super().__init__(f"Run {run_id} isn't a running or failed scrape, so it can't be restarted.")
+
+
+class NoBronze(Error):
+    def __init__(self, what: str) -> None:
+        super().__init__(f"Foundry kept nothing the portal sent for {what}.")
+
+
+class RecordingNotFound(Error):
+    def __init__(self, run_id: uuid.UUID, sha256: str) -> None:
+        super().__init__(f"Run {run_id} kept no recording {sha256}.")
