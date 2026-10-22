@@ -260,7 +260,8 @@ class Crawls:
 
 
 class Uploads:
-    """The attachments a crawl saved to its files folder, uploaded to the bucket as they appear and then deleted.
+    """The attachments a crawl saved to its files folder, by unsigned URL, uploaded to the bucket as they appear (each
+    distinct file once) and then deleted.
     `uploaded` in the folder counts the lines of `files.jsonl` already done, so a crawl carried on by another worker
     doesn't upload them again."""
 
@@ -268,6 +269,7 @@ class Uploads:
         self._bucket = bucket
         self._folder = folder
         self.saved: dict[str, SavedFile] = {}
+        self._put: set[str] = set()
 
     async def upload_new(self) -> None:
         log = self._folder / "files.jsonl"
@@ -276,13 +278,14 @@ class Uploads:
         done = int(cursor.read_text()) if cursor.exists() else 0
         for number, line in enumerate(lines):
             saved = SavedFile.model_validate_json(line)
-            self.saved[saved.url] = saved
+            self.saved[saved.key] = saved
             if number < done:
                 continue
             content = self._folder / saved.sha256
-            if content.exists():
+            if content.exists() and saved.sha256 not in self._put:
                 await self._bucket.put(saved.sha256, await asyncio.to_thread(content.read_bytes), saved.content_type)
-                content.unlink()
+                self._put.add(saved.sha256)
+            content.unlink(missing_ok=True)
             cursor.write_text(str(number + 1))
 
 

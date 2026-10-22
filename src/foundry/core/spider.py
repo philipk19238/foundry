@@ -23,6 +23,7 @@ UNMATCHED = "foundry/unmatched"
 CRASHES = "foundry/crashes"
 EXAMPLE = "foundry/example/"
 PLAIN = "foundry_plain"
+FILE = "foundry_file"
 STOPPING = object()  # the signal a crawl sends when told to stop, before Scrapy starts closing it
 
 

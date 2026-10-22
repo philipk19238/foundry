@@ -14,8 +14,8 @@ from foundry.core import challenges
 RATE_LIMITED = "foundry/rate_limited"
 SLOWED_TO = "foundry/slowed_to"
 SLOWEST = 60.0
-FIRST_SLOWDOWN = 1.0
-EASING = 0.8
+FIRST_SLOWDOWN = 0.25
+EASING = 0.5
 
 
 class Pace:
@@ -58,12 +58,16 @@ class Pace:
         self._delays[site] = max(self._base, self._delays[site] * EASING)
 
     def limited(self, site: str, retry_after: float | None) -> float:
-        """Slows `site` down after a rate limit; returns the seconds to wait before sending again."""
-        slower = min(SLOWEST, max(self._delays[site] * 2, FIRST_SLOWDOWN, retry_after or 0.0))
+        """Slows `site` down after a rate limit: its next turn waits, for every request to it, and the seconds are
+        returned. A `Retry-After` is a pause the portal asked for, once: the site waits that long, and its pace only
+        doubles."""
+        slower = min(SLOWEST, max(self._delays[site] * 2, FIRST_SLOWDOWN))
         self._delays[site] = slower
+        wait = min(SLOWEST, retry_after) if retry_after else slower
+        self._next[site] = max(self._next[site], asyncio.get_running_loop().time() + wait)
         self._stats.inc_value(RATE_LIMITED)
         self._stats.max_value(SLOWED_TO, slower)
-        return slower
+        return wait
 
 
 def retry_after(status: int, headers: dict[str, str]) -> float | None:

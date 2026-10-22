@@ -38,6 +38,8 @@ class Crawl(BaseModel, frozen=True):
     slowed_to: float = 0
     signed_in: bool = True
     browser: bool = False
+    files_saved: int = 0
+    files_failed: int = 0
 
     @classmethod
     def of(cls, stats: CrawlStats, previous_valid: int, job: CrawlJob) -> "Crawl":
@@ -54,6 +56,8 @@ class Crawl(BaseModel, frozen=True):
             slowed_to=stats.slowed_to,
             signed_in=job.session is not None,
             browser=job.browser is not None,
+            files_saved=stats.files_saved,
+            files_failed=stats.files_failed,
         )
 
     @property

@@ -18,6 +18,7 @@
     <div class="result {{ crawl.verdict }}">
       <b class="num">{{ crawl.valid }}</b> listings found{% if crawl.invalid %}, <span class="num">{{ crawl.invalid }}</span> rejected{% endif %}{% if crawl.crashed %}, and the scrape crashed{% endif %}.
       <span class="muted">Tested v{{ trial.scraper.version }} on {{ tried.finished.finished_at.strftime("%b %d at %H:%M") }}.</span>
+      {% if crawl.files_saved or crawl.files_failed %}<span class="muted"><span class="num">{{ crawl.files_saved }}</span> files saved{% if crawl.files_failed %}, <span class="warn"><span class="num">{{ crawl.files_failed }}</span> didn't download</span>{% endif %}.</span>{% endif %}
       {% if crawl.rate_limited %}<span class="muted">The portal rate-limited the scrape {{ crawl.rate_limited }} time{{ "s" if crawl.rate_limited != 1 }}, so it slowed to {{ crawl.slowed_to }} s between requests.</span>{% endif %}
       {% if crawl.challenged %}<span class="warn">Bot checks stopped {{ crawl.challenged }} request{{ "s" if crawl.challenged != 1 }}. Ask the agent to handle them.</span>{% endif %}
       {% if crawl.verdict == "relogin" %}<span class="warn">The portal turned the scraper away{% if crawl.refused %} ({{ crawl.refused }}){% endif %} although it sent the saved sign-in. Ask the agent to sign in again.</span>

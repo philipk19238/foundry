@@ -4,15 +4,36 @@ in, and how a site is registered."""
 import datetime as dt
 from pathlib import Path
 from typing import Annotated, Literal
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
+SIGNING = ("x-amz-", "x-goog-")
+SIGNED = {"expires", "signature", "key-pair-id", "policy", "sig", "se", "sp", "sv", "sr", "st", "skoid", "sktid", "skt",
+          "ske", "sks", "skv"}  # fmt: skip
+
+
+def unsigned(url: str) -> str:
+    """`url` without the signature a presigned link carries (S3, GCS, CloudFront, Azure), which changes every time the
+    portal hands the link out: the same file has the same unsigned URL from crawl to crawl."""
+    parts = urlsplit(url)
+    kept = [
+        (key, value) for key, value in parse_qsl(parts.query, keep_blank_values=True)
+        if not key.lower().startswith(SIGNING) and key.lower() not in SIGNED
+    ]  # fmt: skip
+    return urlunsplit(parts._replace(query=urlencode(kept)))
+
 
 class FileLink(BaseModel, frozen=True):
-    """An attachment: a URL that downloads the file itself, and the name the portal shows."""
+    """An attachment: a URL that downloads the file itself, and the name the portal shows. `key` is the URL without
+    a presigned link's signature, so the same file is known again however the portal signs it."""
 
     url: str
     name: str
+
+    @property
+    def key(self) -> str:
+        return unsigned(self.url)
 
 
 class Listing(BaseModel, frozen=True):
@@ -215,6 +236,10 @@ class SavedFile(BaseModel, frozen=True):
     sha256: str
     content_type: str | None
     size: int
+
+    @property
+    def key(self) -> str:
+        return unsigned(self.url)
 
 
 class CrawlProgress(BaseModel, frozen=True):

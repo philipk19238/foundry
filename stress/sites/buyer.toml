@@ -1,0 +1,9 @@
+name = "Stress Test Purchasing"
+jurisdiction = "This machine"
+
+[[portals]]
+kind = "platform"
+name = "bids"
+platform = "stressbids"
+tenant = "127.0.0.1:0"
+url = "http://127.0.0.1:0/"

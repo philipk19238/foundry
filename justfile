@@ -46,6 +46,10 @@ lint-py:
 test *args:
     FOUNDRY_ENV=local uv run pytest {{ args }}
 
+# Stress and failure scenarios for the live crawl, against a fake portal on this machine (`--list` names them)
+stress *names:
+    uv run python -m stress.run {{ names }}
+
 # Lean proofs and planted-bug checks, on Modal
 prove:
     cd formal/foundry_rules && ~/.agents/skills/formal-verification/scripts/formal lean && ~/.agents/skills/formal-verification/scripts/formal mutate FoundryRules.mutations
