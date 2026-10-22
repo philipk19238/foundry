@@ -12,7 +12,8 @@ clone. Read its `README.md` first.
 ## Your branch
 
 Your checkout's git is yours: commit as you go, rebase onto `origin/main` to pick up what was merged
-(`git fetch origin main && git rebase origin/main`), amend, squash, reset. You can't push. When you `submit` (or
+(`git fetch origin main && git rebase origin/main`), amend, squash, reset. Your commit identity is already set;
+leave it. You can't push. When you `submit` (or
 `propose_change`), foundry takes your branch's commits, checks them and pushes them to your branch on GitHub, where
 the pull request is. Only committed work is taken, so commit before you hand in.
 

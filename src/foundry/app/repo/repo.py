@@ -25,8 +25,8 @@ class Git:
     """Runs git as the configured author; a failed command is an Error carrying git's own message."""
 
     def __init__(self, settings: Settings) -> None:
-        name, address = email.utils.parseaddr(settings.git_author)
-        self._author = ("-c", f"user.name={name}", "-c", f"user.email={address}")
+        self.name, self.address = email.utils.parseaddr(settings.git_author)
+        self._author = ("-c", f"user.name={self.name}", "-c", f"user.email={self.address}")
 
     async def run(self, folder: Path, *args: str) -> str:
         return await self._exec(folder, args, {})
@@ -109,7 +109,8 @@ class Clones:
         self._token = settings.github_token
 
     async def clone(self, folder: Path, branch: str) -> Path:
-        """The run's checkout on its own branch, cloned from `main` the first time and reused when the run resumes."""
+        """The run's checkout on its own branch, cloned from `main` the first time and reused when the run resumes. The
+        agent commits in it as foundry's author."""
         checkout = folder / CHECKOUT
         if checkout.exists():
             return checkout
@@ -117,6 +118,8 @@ class Clones:
         await self._git.run(folder, "clone", "--quiet", str(self._mirror.folder), CHECKOUT)
         await self._git.run(checkout, "remote", "set-url", "origin", self._mirror.url)
         await self._git.run(checkout, "checkout", "--quiet", "-b", branch)
+        await self._git.run(checkout, "config", "user.name", self._git.name)
+        await self._git.run(checkout, "config", "user.email", self._git.address)
         return checkout
 
     async def take(self, checkout: Path, branch: str) -> str:
