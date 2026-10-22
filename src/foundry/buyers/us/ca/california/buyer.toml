@@ -1,0 +1,7 @@
+name = "State of California"
+jurisdiction = "California"
+
+[[portals]]
+kind = "site"
+name = "caleprocure"
+url = "https://caleprocure.ca.gov/pages/Events-BS3/event-search.aspx"
