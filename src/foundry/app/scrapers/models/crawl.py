@@ -122,7 +122,7 @@ class CrawlReport(BaseModel, frozen=True):
     files: dict[str, SavedFile] = {}
     bronze: BronzeRecord | None = None
 
-    def from_browser(self, session: Session, files: dict[str, SavedFile], bronze: BronzeRecord) -> "CrawlReport":
+    def from_browser(self, session: Session | None, files: dict[str, SavedFile], bronze: BronzeRecord) -> "CrawlReport":
         """The report of a live crawl, with what its browser held at the end, the attachments it downloaded, and
         everything the portal sent it."""
         return self.model_copy(update={"session": session, "files": files, "bronze": bronze})

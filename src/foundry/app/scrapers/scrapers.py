@@ -165,7 +165,10 @@ class Crawls:
             stall = dt.timedelta(minutes=site.stall)
             returncode = await self._watched(tree, job, folder / "stderr.log", watch, uploads, bronze, stall)
             headers = access.session.headers if access.session is not None else {}
-            session = await self._browsers.session(browser, headers)
+            try:
+                session = await self._browsers.session(browser, headers)
+            except exceptions.BrowserGone:
+                session = None
         await uploads.upload_new()
         await bronze.upload_new()
         record = await bronze.har()

@@ -356,8 +356,9 @@ class Agent:
                 workspace=workspace.folder,
             )
             try:
-                await self._codex.work(browser, context, workspace, self.prompt(task, start, browser))
-                await self._accounts.save_session(lease, await self._browsers.session(browser, {}))
+                async with self._browsers.kept_alive(browser):
+                    await self._codex.work(browser, context, workspace, self.prompt(task, start, browser))
+                await self._keep_session(lease, browser)
             finally:
                 await self._runs.watching(lease.run_id, None)
         workspace.recordings.keep(
@@ -376,6 +377,16 @@ class Agent:
         if start != handoff.Start.FRESH:
             return outcomes.Reply()
         return outcomes.Rejection(reason="the agent ended without calling submit")
+
+    async def _keep_session(self, lease: Lease, browser: Browser) -> None:
+        """Saves what the browser holds for the portal; one that has closed keeps the session saved last time."""
+        try:
+            portal = await self._browsers.session(browser, {})
+        except exceptions.BrowserGone:
+            note = "The browser had closed before its session was saved; the one saved last time is kept."
+            await self._timeline.log(lease.run_id, EventKind.NOTE, note)
+            return
+        await self._accounts.save_session(lease, portal)
 
     def recordings(self, run_id: uuid.UUID) -> list[Recording]:
         """The browser recordings the run's agent made, as kept when it last finished."""
