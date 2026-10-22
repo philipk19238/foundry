@@ -250,6 +250,111 @@
     },
     {
       "kind": "inductive",
+      "name": "Foundry.JobKind",
+      "type": "Type",
+      "typeHash": "12699277778711304153",
+      "valueHash": null
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.JobKind.casesOn",
+      "type": "{motive : Foundry.JobKind → Sort u} → (t : Foundry.JobKind) → motive Foundry.JobKind.onboard → motive Foundry.JobKind.heal → motive Foundry.JobKind.relogin → motive Foundry.JobKind.review → motive t",
+      "typeHash": "7670055006106969026",
+      "valueHash": "2484586196"
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.JobKind.ctorElim",
+      "type": "{motive : Foundry.JobKind → Sort u} → (ctorIdx : Nat) → (t : Foundry.JobKind) → ctorIdx = t.ctorIdx → Foundry.JobKind.ctorElimType ctorIdx → motive t",
+      "typeHash": "17073320715231939519",
+      "valueHash": "112064331"
+    },
+    {
+      "kind": "constructor",
+      "name": "Foundry.JobKind.heal",
+      "type": "Foundry.JobKind",
+      "typeHash": "9044864423018891698",
+      "valueHash": null
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.JobKind.heal.elim",
+      "type": "{motive : Foundry.JobKind → Sort u} → (t : Foundry.JobKind) → t.ctorIdx = 1 → motive Foundry.JobKind.heal → motive t",
+      "typeHash": "5997021958676032506",
+      "valueHash": "1070142731"
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.JobKind.noConfusion",
+      "type": "{P : Sort v✝} → {x y : Foundry.JobKind} → x = y → Foundry.JobKind.noConfusionType P x y",
+      "typeHash": "726133195886743964",
+      "valueHash": "2359377668"
+    },
+    {
+      "kind": "constructor",
+      "name": "Foundry.JobKind.onboard",
+      "type": "Foundry.JobKind",
+      "typeHash": "9044864423018891698",
+      "valueHash": null
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.JobKind.onboard.elim",
+      "type": "{motive : Foundry.JobKind → Sort u} → (t : Foundry.JobKind) → t.ctorIdx = 0 → motive Foundry.JobKind.onboard → motive t",
+      "typeHash": "3968452681645449795",
+      "valueHash": "3995287544"
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.JobKind.py",
+      "type": "Foundry.JobKind → String",
+      "typeHash": "7546218136220112856",
+      "valueHash": "794386333"
+    },
+    {
+      "kind": "recursor",
+      "name": "Foundry.JobKind.rec",
+      "type": "{motive : Foundry.JobKind → Sort u} → motive Foundry.JobKind.onboard → motive Foundry.JobKind.heal → motive Foundry.JobKind.relogin → motive Foundry.JobKind.review → (t : Foundry.JobKind) → motive t",
+      "typeHash": "10634316805103006366",
+      "valueHash": null
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.JobKind.recOn",
+      "type": "{motive : Foundry.JobKind → Sort u} → (t : Foundry.JobKind) → motive Foundry.JobKind.onboard → motive Foundry.JobKind.heal → motive Foundry.JobKind.relogin → motive Foundry.JobKind.review → motive t",
+      "typeHash": "7670055006106969026",
+      "valueHash": "2484586196"
+    },
+    {
+      "kind": "constructor",
+      "name": "Foundry.JobKind.relogin",
+      "type": "Foundry.JobKind",
+      "typeHash": "9044864423018891698",
+      "valueHash": null
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.JobKind.relogin.elim",
+      "type": "{motive : Foundry.JobKind → Sort u} → (t : Foundry.JobKind) → t.ctorIdx = 2 → motive Foundry.JobKind.relogin → motive t",
+      "typeHash": "13460452814687044694",
+      "valueHash": "2681357759"
+    },
+    {
+      "kind": "constructor",
+      "name": "Foundry.JobKind.review",
+      "type": "Foundry.JobKind",
+      "typeHash": "9044864423018891698",
+      "valueHash": null
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.JobKind.review.elim",
+      "type": "{motive : Foundry.JobKind → Sort u} → (t : Foundry.JobKind) → t.ctorIdx = 3 → motive Foundry.JobKind.review → motive t",
+      "typeHash": "9693490550539191881",
+      "valueHash": "1994112981"
+    },
+    {
+      "kind": "inductive",
       "name": "Foundry.Listing",
       "type": "Type",
       "typeHash": "12699277778711304153",
@@ -354,11 +459,452 @@
       "valueHash": "2455612995"
     },
     {
+      "kind": "inductive",
+      "name": "Foundry.Notice",
+      "type": "Type",
+      "typeHash": "12699277778711304153",
+      "valueHash": null
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.Notice.before",
+      "type": "Foundry.Notice → Foundry.Notice → Bool",
+      "typeHash": "3191591286245792436",
+      "valueHash": "3886257733"
+    },
+    {
+      "kind": "theorem",
+      "name": "Foundry.Notice.before_irrefl",
+      "type": "∀ (n : Foundry.Notice), n.before n = false",
+      "typeHash": "5121590592683648868",
+      "valueHash": null
+    },
+    {
+      "kind": "theorem",
+      "name": "Foundry.Notice.before_trans",
+      "type": "∀ {a b c : Foundry.Notice}, a.before b = true → b.before c = true → a.before c = true",
+      "typeHash": "17872021199899721639",
+      "valueHash": null
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.Notice.casesOn",
+      "type": "{motive : Foundry.Notice → Sort u} → (t : Foundry.Notice) → ((opp seen id : Nat) → motive { opp := opp, seen := seen, id := id }) → motive t",
+      "typeHash": "14160207638974829330",
+      "valueHash": "3037959959"
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.Notice.id",
+      "type": "Foundry.Notice → Nat",
+      "typeHash": "6882836193009038365",
+      "valueHash": "61609679"
+    },
+    {
+      "kind": "constructor",
+      "name": "Foundry.Notice.mk",
+      "type": "Nat → Nat → Nat → Foundry.Notice",
+      "typeHash": "4090240399029149827",
+      "valueHash": null
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.Notice.mk.noConfusion",
+      "type": "{P : Sort u} → {opp seen id opp' seen' id' : Nat} → { opp := opp, seen := seen, id := id } = { opp := opp', seen := seen', id := id' } → (opp = opp' → seen = seen' → id = id' → P) → P",
+      "typeHash": "12292242709227935242",
+      "valueHash": "2921772463"
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.Notice.noConfusion",
+      "type": "{P : Sort u} → {t t' : Foundry.Notice} → t = t' → Foundry.Notice.noConfusionType P t t'",
+      "typeHash": "10048558785369146691",
+      "valueHash": "2896936777"
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.Notice.opp",
+      "type": "Foundry.Notice → Nat",
+      "typeHash": "6882836193009038365",
+      "valueHash": "3220420627"
+    },
+    {
+      "kind": "recursor",
+      "name": "Foundry.Notice.rec",
+      "type": "{motive : Foundry.Notice → Sort u} → ((opp seen id : Nat) → motive { opp := opp, seen := seen, id := id }) → (t : Foundry.Notice) → motive t",
+      "typeHash": "9238250898035082861",
+      "valueHash": null
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.Notice.recOn",
+      "type": "{motive : Foundry.Notice → Sort u} → (t : Foundry.Notice) → ((opp seen id : Nat) → motive { opp := opp, seen := seen, id := id }) → motive t",
+      "typeHash": "14160207638974829330",
+      "valueHash": "3006413515"
+    },
+    {
+      "kind": "theorem",
+      "name": "Foundry.Notice.same_of_unordered",
+      "type": "∀ {a b : Foundry.Notice}, a.before b = false → b.before a = false → a.seen = b.seen ∧ a.id = b.id",
+      "typeHash": "12981709998138125431",
+      "valueHash": null
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.Notice.seen",
+      "type": "Foundry.Notice → Nat",
+      "typeHash": "6882836193009038365",
+      "valueHash": "3232612630"
+    },
+    {
       "kind": "definition",
       "name": "Foundry.SameContent",
       "type": "Foundry.Listing → Foundry.Listing → Prop",
       "typeHash": "11347921224079869457",
       "valueHash": "2895160256"
+    },
+    {
+      "kind": "inductive",
+      "name": "Foundry.SourceStatus",
+      "type": "Type",
+      "typeHash": "12699277778711304153",
+      "valueHash": null
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.SourceStatus.casesOn",
+      "type": "{motive : Foundry.SourceStatus → Sort u} → (t : Foundry.SourceStatus) → motive Foundry.SourceStatus.new → motive Foundry.SourceStatus.onboarding → motive Foundry.SourceStatus.ready → motive Foundry.SourceStatus.relogin → motive Foundry.SourceStatus.healing → motive Foundry.SourceStatus.inReview → motive Foundry.SourceStatus.needsHuman → motive t",
+      "typeHash": "8239579893564315872",
+      "valueHash": "3452171376"
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.SourceStatus.ctorElim",
+      "type": "{motive : Foundry.SourceStatus → Sort u} → (ctorIdx : Nat) → (t : Foundry.SourceStatus) → ctorIdx = t.ctorIdx → Foundry.SourceStatus.ctorElimType ctorIdx → motive t",
+      "typeHash": "15612962173829260285",
+      "valueHash": "2663631540"
+    },
+    {
+      "kind": "constructor",
+      "name": "Foundry.SourceStatus.healing",
+      "type": "Foundry.SourceStatus",
+      "typeHash": "1326010025013877080",
+      "valueHash": null
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.SourceStatus.healing.elim",
+      "type": "{motive : Foundry.SourceStatus → Sort u} → (t : Foundry.SourceStatus) → t.ctorIdx = 4 → motive Foundry.SourceStatus.healing → motive t",
+      "typeHash": "5415658005721742553",
+      "valueHash": "2343474601"
+    },
+    {
+      "kind": "constructor",
+      "name": "Foundry.SourceStatus.inReview",
+      "type": "Foundry.SourceStatus",
+      "typeHash": "1326010025013877080",
+      "valueHash": null
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.SourceStatus.inReview.elim",
+      "type": "{motive : Foundry.SourceStatus → Sort u} → (t : Foundry.SourceStatus) → t.ctorIdx = 5 → motive Foundry.SourceStatus.inReview → motive t",
+      "typeHash": "3885823045599339128",
+      "valueHash": "3376461328"
+    },
+    {
+      "kind": "constructor",
+      "name": "Foundry.SourceStatus.needsHuman",
+      "type": "Foundry.SourceStatus",
+      "typeHash": "1326010025013877080",
+      "valueHash": null
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.SourceStatus.needsHuman.elim",
+      "type": "{motive : Foundry.SourceStatus → Sort u} → (t : Foundry.SourceStatus) → t.ctorIdx = 6 → motive Foundry.SourceStatus.needsHuman → motive t",
+      "typeHash": "12141356300168243725",
+      "valueHash": "2042516398"
+    },
+    {
+      "kind": "constructor",
+      "name": "Foundry.SourceStatus.new",
+      "type": "Foundry.SourceStatus",
+      "typeHash": "1326010025013877080",
+      "valueHash": null
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.SourceStatus.new.elim",
+      "type": "{motive : Foundry.SourceStatus → Sort u} → (t : Foundry.SourceStatus) → t.ctorIdx = 0 → motive Foundry.SourceStatus.new → motive t",
+      "typeHash": "6121159973085033836",
+      "valueHash": "4162661368"
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.SourceStatus.noConfusion",
+      "type": "{P : Sort v✝} → {x y : Foundry.SourceStatus} → x = y → Foundry.SourceStatus.noConfusionType P x y",
+      "typeHash": "12568802761148905741",
+      "valueHash": "3468657132"
+    },
+    {
+      "kind": "constructor",
+      "name": "Foundry.SourceStatus.onboarding",
+      "type": "Foundry.SourceStatus",
+      "typeHash": "1326010025013877080",
+      "valueHash": null
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.SourceStatus.onboarding.elim",
+      "type": "{motive : Foundry.SourceStatus → Sort u} → (t : Foundry.SourceStatus) → t.ctorIdx = 1 → motive Foundry.SourceStatus.onboarding → motive t",
+      "typeHash": "750568072628851739",
+      "valueHash": "4244692388"
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.SourceStatus.py",
+      "type": "Foundry.SourceStatus → String",
+      "typeHash": "6525326934406324917",
+      "valueHash": "764995337"
+    },
+    {
+      "kind": "constructor",
+      "name": "Foundry.SourceStatus.ready",
+      "type": "Foundry.SourceStatus",
+      "typeHash": "1326010025013877080",
+      "valueHash": null
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.SourceStatus.ready.elim",
+      "type": "{motive : Foundry.SourceStatus → Sort u} → (t : Foundry.SourceStatus) → t.ctorIdx = 2 → motive Foundry.SourceStatus.ready → motive t",
+      "typeHash": "1400001982023454809",
+      "valueHash": "2075177823"
+    },
+    {
+      "kind": "recursor",
+      "name": "Foundry.SourceStatus.rec",
+      "type": "{motive : Foundry.SourceStatus → Sort u} → motive Foundry.SourceStatus.new → motive Foundry.SourceStatus.onboarding → motive Foundry.SourceStatus.ready → motive Foundry.SourceStatus.relogin → motive Foundry.SourceStatus.healing → motive Foundry.SourceStatus.inReview → motive Foundry.SourceStatus.needsHuman → (t : Foundry.SourceStatus) → motive t",
+      "typeHash": "2969531200875481661",
+      "valueHash": null
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.SourceStatus.recOn",
+      "type": "{motive : Foundry.SourceStatus → Sort u} → (t : Foundry.SourceStatus) → motive Foundry.SourceStatus.new → motive Foundry.SourceStatus.onboarding → motive Foundry.SourceStatus.ready → motive Foundry.SourceStatus.relogin → motive Foundry.SourceStatus.healing → motive Foundry.SourceStatus.inReview → motive Foundry.SourceStatus.needsHuman → motive t",
+      "typeHash": "8239579893564315872",
+      "valueHash": "3452171376"
+    },
+    {
+      "kind": "constructor",
+      "name": "Foundry.SourceStatus.relogin",
+      "type": "Foundry.SourceStatus",
+      "typeHash": "1326010025013877080",
+      "valueHash": null
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.SourceStatus.relogin.elim",
+      "type": "{motive : Foundry.SourceStatus → Sort u} → (t : Foundry.SourceStatus) → t.ctorIdx = 3 → motive Foundry.SourceStatus.relogin → motive t",
+      "typeHash": "14227677460806723807",
+      "valueHash": "4057420236"
+    },
+    {
+      "kind": "inductive",
+      "name": "Foundry.Stage",
+      "type": "Type",
+      "typeHash": "12699277778711304153",
+      "valueHash": null
+    },
+    {
+      "kind": "constructor",
+      "name": "Foundry.Stage.building",
+      "type": "Foundry.Stage",
+      "typeHash": "3373500499221093005",
+      "valueHash": null
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.Stage.building.elim",
+      "type": "{motive : Foundry.Stage → Sort u} → (t : Foundry.Stage) → t.ctorIdx = 0 → motive Foundry.Stage.building → motive t",
+      "typeHash": "8110401351447345849",
+      "valueHash": "992981622"
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.Stage.casesOn",
+      "type": "{motive : Foundry.Stage → Sort u} → (t : Foundry.Stage) → motive Foundry.Stage.building → motive Foundry.Stage.waiting → motive Foundry.Stage.review → motive Foundry.Stage.live → motive Foundry.Stage.stopped → motive t",
+      "typeHash": "6002822826087773878",
+      "valueHash": "695772411"
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.Stage.ctorElim",
+      "type": "{motive : Foundry.Stage → Sort u} → (ctorIdx : Nat) → (t : Foundry.Stage) → ctorIdx = t.ctorIdx → Foundry.Stage.ctorElimType ctorIdx → motive t",
+      "typeHash": "13372390128307982391",
+      "valueHash": "2605108723"
+    },
+    {
+      "kind": "constructor",
+      "name": "Foundry.Stage.live",
+      "type": "Foundry.Stage",
+      "typeHash": "3373500499221093005",
+      "valueHash": null
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.Stage.live.elim",
+      "type": "{motive : Foundry.Stage → Sort u} → (t : Foundry.Stage) → t.ctorIdx = 3 → motive Foundry.Stage.live → motive t",
+      "typeHash": "463132586311655241",
+      "valueHash": "2682033524"
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.Stage.noConfusion",
+      "type": "{P : Sort v✝} → {x y : Foundry.Stage} → x = y → Foundry.Stage.noConfusionType P x y",
+      "typeHash": "4821168852453723874",
+      "valueHash": "2041695669"
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.Stage.py",
+      "type": "Foundry.Stage → String",
+      "typeHash": "4584805787337183173",
+      "valueHash": "4236061681"
+    },
+    {
+      "kind": "recursor",
+      "name": "Foundry.Stage.rec",
+      "type": "{motive : Foundry.Stage → Sort u} → motive Foundry.Stage.building → motive Foundry.Stage.waiting → motive Foundry.Stage.review → motive Foundry.Stage.live → motive Foundry.Stage.stopped → (t : Foundry.Stage) → motive t",
+      "typeHash": "2851867935883016632",
+      "valueHash": null
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.Stage.recOn",
+      "type": "{motive : Foundry.Stage → Sort u} → (t : Foundry.Stage) → motive Foundry.Stage.building → motive Foundry.Stage.waiting → motive Foundry.Stage.review → motive Foundry.Stage.live → motive Foundry.Stage.stopped → motive t",
+      "typeHash": "6002822826087773878",
+      "valueHash": "695772411"
+    },
+    {
+      "kind": "constructor",
+      "name": "Foundry.Stage.review",
+      "type": "Foundry.Stage",
+      "typeHash": "3373500499221093005",
+      "valueHash": null
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.Stage.review.elim",
+      "type": "{motive : Foundry.Stage → Sort u} → (t : Foundry.Stage) → t.ctorIdx = 2 → motive Foundry.Stage.review → motive t",
+      "typeHash": "14865928019022139096",
+      "valueHash": "2908927777"
+    },
+    {
+      "kind": "constructor",
+      "name": "Foundry.Stage.stopped",
+      "type": "Foundry.Stage",
+      "typeHash": "3373500499221093005",
+      "valueHash": null
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.Stage.stopped.elim",
+      "type": "{motive : Foundry.Stage → Sort u} → (t : Foundry.Stage) → t.ctorIdx = 4 → motive Foundry.Stage.stopped → motive t",
+      "typeHash": "9973854610597964708",
+      "valueHash": "1148979173"
+    },
+    {
+      "kind": "constructor",
+      "name": "Foundry.Stage.waiting",
+      "type": "Foundry.Stage",
+      "typeHash": "3373500499221093005",
+      "valueHash": null
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.Stage.waiting.elim",
+      "type": "{motive : Foundry.Stage → Sort u} → (t : Foundry.Stage) → t.ctorIdx = 1 → motive Foundry.Stage.waiting → motive t",
+      "typeHash": "18388687949209263159",
+      "valueHash": "1123223838"
+    },
+    {
+      "kind": "inductive",
+      "name": "Foundry.Standing",
+      "type": "Type",
+      "typeHash": "12699277778711304153",
+      "valueHash": null
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.Standing.casesOn",
+      "type": "{motive : Foundry.Standing → Sort u} → (t : Foundry.Standing) → ((live proposed : Bool) → motive { live := live, proposed := proposed }) → motive t",
+      "typeHash": "6911982377193846253",
+      "valueHash": "1502728406"
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.Standing.live",
+      "type": "Foundry.Standing → Bool",
+      "typeHash": "13726694516733032959",
+      "valueHash": "3494629614"
+    },
+    {
+      "kind": "constructor",
+      "name": "Foundry.Standing.mk",
+      "type": "Bool → Bool → Foundry.Standing",
+      "typeHash": "8697961238312290670",
+      "valueHash": null
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.Standing.mk.noConfusion",
+      "type": "{P : Sort u} → {live proposed live' proposed' : Bool} → { live := live, proposed := proposed } = { live := live', proposed := proposed' } → (live = live' → proposed = proposed' → P) → P",
+      "typeHash": "2608142963497559450",
+      "valueHash": "1812870125"
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.Standing.noConfusion",
+      "type": "{P : Sort u} → {t t' : Foundry.Standing} → t = t' → Foundry.Standing.noConfusionType P t t'",
+      "typeHash": "6238991770250006193",
+      "valueHash": "4045292707"
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.Standing.proposed",
+      "type": "Foundry.Standing → Bool",
+      "typeHash": "13726694516733032959",
+      "valueHash": "1389120875"
+    },
+    {
+      "kind": "recursor",
+      "name": "Foundry.Standing.rec",
+      "type": "{motive : Foundry.Standing → Sort u} → ((live proposed : Bool) → motive { live := live, proposed := proposed }) → (t : Foundry.Standing) → motive t",
+      "typeHash": "15342343491226472638",
+      "valueHash": null
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.Standing.recOn",
+      "type": "{motive : Foundry.Standing → Sort u} → (t : Foundry.Standing) → ((live proposed : Bool) → motive { live := live, proposed := proposed }) → motive t",
+      "typeHash": "6911982377193846253",
+      "valueHash": "1889593907"
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.Standing.settled",
+      "type": "Foundry.Standing → Foundry.JobKind → Bool → Foundry.SourceStatus",
+      "typeHash": "5668473813768017242",
+      "valueHash": "1002248181"
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.Standing.working",
+      "type": "Foundry.Standing → Foundry.JobKind → Option Foundry.SourceStatus",
+      "typeHash": "11432906685062807565",
+      "valueHash": "2757761072"
     },
     {
       "kind": "inductive",
@@ -459,6 +1005,13 @@
       "valueHash": "641048089"
     },
     {
+      "kind": "definition",
+      "name": "Foundry.UniqueIds",
+      "type": "List Foundry.Notice → Prop",
+      "typeHash": "5401526022098986687",
+      "valueHash": "1208508072"
+    },
+    {
       "kind": "inductive",
       "name": "Foundry.Verdict",
       "type": "Type",
@@ -548,6 +1101,34 @@
       "type": "Foundry.Health → Foundry.Crawl → Foundry.Health",
       "typeHash": "15552030004842256775",
       "valueHash": "233277066"
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.allKinds",
+      "type": "List Foundry.JobKind",
+      "typeHash": "13897561362584452394",
+      "valueHash": "1700727442"
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.allStages",
+      "type": "List Foundry.Stage",
+      "typeHash": "6924122910332850309",
+      "valueHash": "3944081379"
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.allStatuses",
+      "type": "List Foundry.SourceStatus",
+      "typeHash": "7739565533869485223",
+      "valueHash": "920524398"
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.bools",
+      "type": "List Bool",
+      "typeHash": "10880486513441453615",
+      "valueHash": "3050800678"
     },
     {
       "kind": "definition",
@@ -649,10 +1230,31 @@
     },
     {
       "kind": "theorem",
+      "name": "Foundry.eq_of_same_id",
+      "type": "∀ (ns : List Foundry.Notice), Foundry.UniqueIds ns → ∀ (a b : Foundry.Notice), a ∈ ns → b ∈ ns → a.id = b.id → a = b",
+      "typeHash": "8449610545455264",
+      "valueHash": null
+    },
+    {
+      "kind": "theorem",
       "name": "Foundry.eq_of_sorted_same_members",
       "type": "∀ (a b : List Nat), List.Pairwise (fun x1 x2 => x1 < x2) a → List.Pairwise (fun x1 x2 => x1 < x2) b → (∀ (x : Nat), x ∈ a ↔ x ∈ b) → a = b",
       "typeHash": "13726949580871364196",
       "valueHash": null
+    },
+    {
+      "kind": "theorem",
+      "name": "Foundry.exists_newest",
+      "type": "∀ (l : List Foundry.Notice), l ≠ [] → ∃ n, n ∈ l ∧ ∀ (m : Foundry.Notice), m ∈ l → m.before n = false",
+      "typeHash": "14969014763750535405",
+      "valueHash": null
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.flag",
+      "type": "Bool → String",
+      "typeHash": "6466416263324806704",
+      "valueHash": "350758478"
     },
     {
       "kind": "definition",
@@ -695,6 +1297,20 @@
       "type": "Nat → Foundry.Bytes",
       "typeHash": "18095932933893603060",
       "valueHash": "3367645802"
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.homeStage",
+      "type": "Foundry.SourceStatus → Bool → Bool → Bool → Foundry.Stage",
+      "typeHash": "10058471258626932894",
+      "valueHash": "747086538"
+    },
+    {
+      "kind": "theorem",
+      "name": "Foundry.home_agrees_with_page",
+      "type": "∀ (s : Foundry.SourceStatus) (wk wt rv : Bool), Foundry.homeStage s wk wt rv = Foundry.pageStage s wk wt rv",
+      "typeHash": "8454149913257700027",
+      "valueHash": null
     },
     {
       "kind": "theorem",
@@ -782,6 +1398,13 @@
     },
     {
       "kind": "definition",
+      "name": "Foundry.instDecidableEqJobKind",
+      "type": "DecidableEq Foundry.JobKind",
+      "typeHash": "4739046460066493821",
+      "valueHash": null
+    },
+    {
+      "kind": "definition",
       "name": "Foundry.instDecidableEqListing",
       "type": "DecidableEq Foundry.Listing",
       "typeHash": "4559098911633568532",
@@ -793,6 +1416,48 @@
       "type": "(x x_1 : Foundry.Listing) → Decidable (x = x_1)",
       "typeHash": "14927977997314306332",
       "valueHash": "4281684099"
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.instDecidableEqNotice",
+      "type": "DecidableEq Foundry.Notice",
+      "typeHash": "14001171869317827539",
+      "valueHash": null
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.instDecidableEqNotice.decEq",
+      "type": "(x x_1 : Foundry.Notice) → Decidable (x = x_1)",
+      "typeHash": "9728065502194547974",
+      "valueHash": "591298306"
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.instDecidableEqSourceStatus",
+      "type": "DecidableEq Foundry.SourceStatus",
+      "typeHash": "14835678854927598886",
+      "valueHash": null
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.instDecidableEqStage",
+      "type": "DecidableEq Foundry.Stage",
+      "typeHash": "15724455747776947842",
+      "valueHash": null
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.instDecidableEqStanding",
+      "type": "DecidableEq Foundry.Standing",
+      "typeHash": "18222303393226272579",
+      "valueHash": null
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.instDecidableEqStanding.decEq",
+      "type": "(x x_1 : Foundry.Standing) → Decidable (x = x_1)",
+      "typeHash": "2678720016779597372",
+      "valueHash": "1930534240"
     },
     {
       "kind": "definition",
@@ -852,6 +1517,20 @@
     },
     {
       "kind": "definition",
+      "name": "Foundry.instReprJobKind",
+      "type": "Repr Foundry.JobKind",
+      "typeHash": "14102459705019299227",
+      "valueHash": null
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.instReprJobKind.repr",
+      "type": "Foundry.JobKind → Nat → Std.Format",
+      "typeHash": "7537857667432687240",
+      "valueHash": "1808503752"
+    },
+    {
+      "kind": "definition",
       "name": "Foundry.instReprListing",
       "type": "Repr Foundry.Listing",
       "typeHash": "13884274522481498556",
@@ -863,6 +1542,62 @@
       "type": "Foundry.Listing → Nat → Std.Format",
       "typeHash": "1624216432624669032",
       "valueHash": "1714005952"
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.instReprNotice",
+      "type": "Repr Foundry.Notice",
+      "typeHash": "11485670786278898341",
+      "valueHash": null
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.instReprNotice.repr",
+      "type": "Foundry.Notice → Nat → Std.Format",
+      "typeHash": "10796716299134486615",
+      "valueHash": "47470904"
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.instReprSourceStatus",
+      "type": "Repr Foundry.SourceStatus",
+      "typeHash": "2100979628716279069",
+      "valueHash": null
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.instReprSourceStatus.repr",
+      "type": "Foundry.SourceStatus → Nat → Std.Format",
+      "typeHash": "11024843776886302353",
+      "valueHash": "2518887586"
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.instReprStage",
+      "type": "Repr Foundry.Stage",
+      "typeHash": "16603043508535174847",
+      "valueHash": null
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.instReprStage.repr",
+      "type": "Foundry.Stage → Nat → Std.Format",
+      "typeHash": "4107600036870451966",
+      "valueHash": "441085743"
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.instReprStanding",
+      "type": "Repr Foundry.Standing",
+      "typeHash": "4443654145754015611",
+      "valueHash": null
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.instReprStanding.repr",
+      "type": "Foundry.Standing → Nat → Std.Format",
+      "typeHash": "6124985166444303819",
+      "valueHash": "670966088"
     },
     {
       "kind": "definition",
@@ -905,6 +1640,13 @@
       "type": "Foundry.Bytes",
       "typeHash": "15245437307616074883",
       "valueHash": "3454031266"
+    },
+    {
+      "kind": "theorem",
+      "name": "Foundry.length_one_of_all_eq",
+      "type": "∀ (l : List Foundry.Notice) (n : Foundry.Notice), l.Nodup → n ∈ l → (∀ (x : Foundry.Notice), x ∈ l → x = n) → l.length = 1",
+      "typeHash": "12985001001095712324",
+      "valueHash": null
     },
     {
       "kind": "definition",
@@ -978,10 +1720,31 @@
     },
     {
       "kind": "definition",
+      "name": "Foundry.naiveOpportunities",
+      "type": "List Foundry.Notice → List Foundry.Notice",
+      "typeHash": "2618615010799762171",
+      "valueHash": "3943104478"
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.naiveRowNumber",
+      "type": "List Foundry.Notice → Foundry.Notice → Nat",
+      "typeHash": "6734985424061567615",
+      "valueHash": "3129687992"
+    },
+    {
+      "kind": "definition",
       "name": "Foundry.naiveVerdict",
       "type": "Foundry.Crawl → Foundry.Verdict",
       "typeHash": "11228779311988603630",
       "valueHash": "2394928283"
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.naiveWorking",
+      "type": "Foundry.Standing → Foundry.JobKind → Option Foundry.SourceStatus",
+      "typeHash": "11432906685062807565",
+      "valueHash": "4056381342"
     },
     {
       "kind": "theorem",
@@ -1006,6 +1769,20 @@
     },
     {
       "kind": "theorem",
+      "name": "Foundry.naive_tie_two_rows",
+      "type": "(Foundry.naiveOpportunities [{ opp := 1, seen := 5, id := 10 }, { opp := 1, seen := 5, id := 11 }]).length = 2 ∧ (Foundry.opportunities [{ opp := 1, seen := 5, id := 10 }, { opp := 1, seen := 5, id := 11 }]).length = 1",
+      "typeHash": "3417092444555713633",
+      "valueHash": null
+    },
+    {
+      "kind": "theorem",
+      "name": "Foundry.naive_working_onboards_live",
+      "type": "Foundry.naiveWorking { live := true, proposed := false } Foundry.JobKind.onboard = some Foundry.SourceStatus.onboarding",
+      "typeHash": "9679819302546634520",
+      "valueHash": null
+    },
+    {
+      "kind": "theorem",
       "name": "Foundry.needsHuman_only_when_exhausted",
       "type": "∀ (h : Foundry.Health) (c : Foundry.Crawl), (Foundry.afterCrawl h c).status = Foundry.Status.needsHuman → Foundry.verdict c ≠ Foundry.Verdict.healthy ∧ Foundry.maxHeals ≤ h.heals",
       "typeHash": "10437720571658923909",
@@ -1016,6 +1793,13 @@
       "name": "Foundry.nodup_ingestAll",
       "type": "∀ (c ns : List Foundry.Bytes), c.Nodup → (Foundry.ingestAll c ns).Nodup",
       "typeHash": "11166341776585019",
+      "valueHash": null
+    },
+    {
+      "kind": "theorem",
+      "name": "Foundry.nodup_of_unique",
+      "type": "∀ (ns : List Foundry.Notice), Foundry.UniqueIds ns → ns.Nodup",
+      "typeHash": "1141891252640178303",
       "valueHash": null
     },
     {
@@ -1041,6 +1825,34 @@
     },
     {
       "kind": "definition",
+      "name": "Foundry.opportunities",
+      "type": "List Foundry.Notice → List Foundry.Notice",
+      "typeHash": "2618615010799762171",
+      "valueHash": "2837256062"
+    },
+    {
+      "kind": "theorem",
+      "name": "Foundry.opportunities_newest",
+      "type": "∀ (ns : List Foundry.Notice), Foundry.UniqueIds ns → ∀ (n m : Foundry.Notice), n ∈ Foundry.opportunities ns → m ∈ ns → m.opp = n.opp → m ≠ n → m.seen < n.seen ∨ m.seen = n.seen ∧ m.id < n.id",
+      "typeHash": "2731456832085093224",
+      "valueHash": null
+    },
+    {
+      "kind": "theorem",
+      "name": "Foundry.opportunities_one_each",
+      "type": "∀ (ns : List Foundry.Notice), Foundry.UniqueIds ns → ∀ (o : Nat), (∃ n, n ∈ ns ∧ n.opp = o) → (List.filter (fun n => n.opp == o) (Foundry.opportunities ns)).length = 1",
+      "typeHash": "14243546103434465476",
+      "valueHash": null
+    },
+    {
+      "kind": "theorem",
+      "name": "Foundry.opportunities_stored",
+      "type": "∀ (ns : List Foundry.Notice) (n : Foundry.Notice), n ∈ Foundry.opportunities ns → n ∈ ns",
+      "typeHash": "11684018360529677486",
+      "valueHash": null
+    },
+    {
+      "kind": "definition",
       "name": "Foundry.opportunityKey",
       "type": "Foundry.Listing → List Foundry.Bytes",
       "typeHash": "866738534563641853",
@@ -1059,6 +1871,13 @@
       "type": "∀ (a b : Foundry.Listing), Foundry.Fits (Foundry.opportunityKey a) → Foundry.Fits (Foundry.opportunityKey b) → (Foundry.encode (Foundry.opportunityKey a) = Foundry.encode (Foundry.opportunityKey b) ↔ a.source = b.source ∧ a.anchorKind = b.anchorKind ∧ a.anchor = b.anchor)",
       "typeHash": "4820484703929638682",
       "valueHash": null
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.pageStage",
+      "type": "Foundry.SourceStatus → Bool → Bool → Bool → Foundry.Stage",
+      "typeHash": "10058471258626932894",
+      "valueHash": "747086538"
     },
     {
       "kind": "definition",
@@ -1083,16 +1902,72 @@
     },
     {
       "kind": "definition",
+      "name": "Foundry.rowNumber",
+      "type": "List Foundry.Notice → Foundry.Notice → Nat",
+      "typeHash": "6734985424061567615",
+      "valueHash": "3295429197"
+    },
+    {
+      "kind": "theorem",
+      "name": "Foundry.rowNumber_one_iff",
+      "type": "∀ (ns : List Foundry.Notice) (n : Foundry.Notice), Foundry.rowNumber ns n = 1 ↔ ∀ (m : Foundry.Notice), m ∈ ns → m.opp = n.opp → m.before n = false",
+      "typeHash": "10427695987682838439",
+      "valueHash": null
+    },
+    {
+      "kind": "definition",
       "name": "Foundry.sample",
       "type": "Foundry.Listing",
       "typeHash": "15487665391932108320",
       "valueHash": "3168923838"
     },
     {
+      "kind": "definition",
+      "name": "Foundry.settledVectors",
+      "type": "List String",
+      "typeHash": "2639935575810947993",
+      "valueHash": "3805896518"
+    },
+    {
+      "kind": "theorem",
+      "name": "Foundry.settled_in_review",
+      "type": "∀ (st : Foundry.Standing) (k : Foundry.JobKind) (r : Bool), st.live = false → st.proposed = true → ¬(r = true ∧ k = Foundry.JobKind.heal) → st.settled k r = Foundry.SourceStatus.inReview",
+      "typeHash": "5141669537301690046",
+      "valueHash": null
+    },
+    {
+      "kind": "theorem",
+      "name": "Foundry.settled_live",
+      "type": "∀ (st : Foundry.Standing) (k : Foundry.JobKind) (r : Bool), st.live = true → st.settled k r = if r = true ∧ k = Foundry.JobKind.heal then Foundry.SourceStatus.needsHuman else Foundry.SourceStatus.ready",
+      "typeHash": "8064944202926604393",
+      "valueHash": null
+    },
+    {
+      "kind": "theorem",
+      "name": "Foundry.settled_not_busy",
+      "type": "∀ (st : Foundry.Standing) (k : Foundry.JobKind) (r : Bool), st.settled k r ≠ Foundry.SourceStatus.onboarding ∧ st.settled k r ≠ Foundry.SourceStatus.healing",
+      "typeHash": "8593165533512215645",
+      "valueHash": null
+    },
+    {
       "kind": "theorem",
       "name": "Foundry.silent_breakage_heals",
       "type": "∀ (c : Foundry.Crawl), c.authFailed = false → c.valid = 0 → c.previousValid > 0 → Foundry.verdict c = Foundry.Verdict.heal",
       "typeHash": "7737020125747770218",
+      "valueHash": null
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.snapshots",
+      "type": "List Foundry.Notice → Foundry.Notice → Nat",
+      "typeHash": "6734985424061567615",
+      "valueHash": "4259618578"
+    },
+    {
+      "kind": "theorem",
+      "name": "Foundry.snapshots_counts",
+      "type": "∀ (ns : List Foundry.Notice) (n : Foundry.Notice), n ∈ Foundry.opportunities ns → Foundry.snapshots ns n = (List.filter (fun m => m.opp == n.opp) ns).length ∧ 1 ≤ Foundry.snapshots ns n",
+      "typeHash": "15297350327130566973",
       "valueHash": null
     },
     {
@@ -1107,6 +1982,62 @@
       "name": "Foundry.sorted_insertSorted",
       "type": "∀ (x : Nat) (ys : List Nat), List.Pairwise (fun x1 x2 => x1 < x2) ys → List.Pairwise (fun x1 x2 => x1 < x2) (Foundry.insertSorted x ys)",
       "typeHash": "7189939019032066066",
+      "valueHash": null
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.stageOf",
+      "type": "Foundry.SourceStatus → Bool → Bool → Bool → Foundry.Stage",
+      "typeHash": "10058471258626932894",
+      "valueHash": "3537347286"
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.stageVectors",
+      "type": "List String",
+      "typeHash": "2639935575810947993",
+      "valueHash": "3331053432"
+    },
+    {
+      "kind": "theorem",
+      "name": "Foundry.stage_live_iff",
+      "type": "∀ (s : Foundry.SourceStatus) (wk wt rv : Bool), Foundry.stageOf s wk wt rv = Foundry.Stage.live ↔ wt = false ∧ wk = false ∧ rv = false ∧ s = Foundry.SourceStatus.ready",
+      "typeHash": "3022935733398702261",
+      "valueHash": null
+    },
+    {
+      "kind": "theorem",
+      "name": "Foundry.stage_reachable",
+      "type": "∀ (st : Foundry.Stage), ∃ s wk wt rv, Foundry.stageOf s wk wt rv = st",
+      "typeHash": "10999239912155404245",
+      "valueHash": null
+    },
+    {
+      "kind": "theorem",
+      "name": "Foundry.stage_review_third",
+      "type": "∀ (s : Foundry.SourceStatus), Foundry.stageOf s false false true = Foundry.Stage.review",
+      "typeHash": "13863390556713545754",
+      "valueHash": null
+    },
+    {
+      "kind": "theorem",
+      "name": "Foundry.stage_stopped_iff",
+      "type": "∀ (s : Foundry.SourceStatus) (wk wt rv : Bool), Foundry.stageOf s wk wt rv = Foundry.Stage.stopped ↔ wt = false ∧ wk = false ∧ rv = false ∧ s ≠ Foundry.SourceStatus.ready",
+      "typeHash": "7494494387428393504",
+      "valueHash": null
+    },
+    {
+      "kind": "theorem",
+      "name": "Foundry.stage_waiting_first",
+      "type": "∀ (s : Foundry.SourceStatus) (wk rv : Bool), Foundry.stageOf s wk true rv = Foundry.Stage.waiting",
+      "typeHash": "10886984284435353019",
+      "valueHash": null
+    },
+    {
+      "kind": "theorem",
+      "name": "Foundry.stage_working_second",
+      "type": "∀ (s : Foundry.SourceStatus) (rv : Bool), Foundry.stageOf s true false rv = Foundry.Stage.building",
+      "typeHash": "5379909150594286221",
       "valueHash": null
     },
     {
@@ -1139,10 +2070,38 @@
     },
     {
       "kind": "definition",
+      "name": "Foundry.vectorHeader",
+      "type": "List String",
+      "typeHash": "2639935575810947993",
+      "valueHash": "542611758"
+    },
+    {
+      "kind": "definition",
       "name": "Foundry.verdict",
       "type": "Foundry.Crawl → Foundry.Verdict",
       "typeHash": "11228779311988603630",
       "valueHash": "1305051384"
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.workingVectors",
+      "type": "List String",
+      "typeHash": "2639935575810947993",
+      "valueHash": "4163875207"
+    },
+    {
+      "kind": "theorem",
+      "name": "Foundry.working_keeps_live",
+      "type": "∀ (st : Foundry.Standing) (k : Foundry.JobKind), st.live = true → st.working k = if k = Foundry.JobKind.heal then some Foundry.SourceStatus.healing else none",
+      "typeHash": "9870204866886995569",
+      "valueHash": null
+    },
+    {
+      "kind": "theorem",
+      "name": "Foundry.working_never_onboards_live",
+      "type": "∀ (st : Foundry.Standing) (k : Foundry.JobKind), st.live = true → st.working k ≠ some Foundry.SourceStatus.onboarding",
+      "typeHash": "3762722464340217472",
+      "valueHash": null
     }
   ]
 }

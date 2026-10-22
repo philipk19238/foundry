@@ -44,3 +44,114 @@ mutation the anchor drops its kind
 detects opportunity_same_iff
 - def opportunityKey (l : Listing) : List Bytes := [tagOpportunity, l.source, l.anchorKind, l.anchor]
 + def opportunityKey (l : Listing) : List Bytes := [tagOpportunity, l.source, l.anchor]
+
+mutation an agent working beats a question waiting
+detects stage_waiting_first
+-   if waiting then .waiting
+-   else if working then .building
++   if working then .building
++   else if waiting then .waiting
+
+mutation a version in review beats an agent working
+detects stage_working_second
+-   else if working then .building
+-   else if reviewing then .review
++   else if reviewing then .review
++   else if working then .building
+
+mutation the status is read before the review
+detects stage_review_third
+-   else if reviewing then .review
+-   else if status = .ready then .live
++   else if status = .ready then .live
++   else if reviewing then .review
+
+mutation a relogging source still shows live
+detects stage_live_iff
+-   else if status = .ready then .live
++   else if status = .ready ∨ status = .relogin then .live
+
+mutation a source with nothing under way is never stopped
+detects stage_stopped_iff
+-   else if status = .ready then .live
+-   else .stopped
++   else if status = .ready then .live
++   else .building
+
+mutation a version in review shows as building
+detects stage_reachable
+-   else if reviewing then .review
++   else if reviewing then .building
+
+mutation the home page passes waiting and working swapped
+detects home_agrees_with_page
+-   stageOf status inWorking inWaiting inReviewing
++   stageOf status inWaiting inWorking inReviewing
+
+mutation working forgets that the source is live
+detects working_never_onboards_live
+-   else if st.live then none
+-   else some .onboarding
++   else some .onboarding
+
+mutation a live source is marked ready while the agent works
+detects working_keeps_live
+-   else if st.live then none
++   else if st.live then some .ready
+
+mutation a rejected heal of a live scraper goes back to ready
+detects settled_live
+-   if rejected = true ∧ k = .heal then .needsHuman
++   if rejected = true ∧ k = .heal ∧ st.live = false then .needsHuman
+
+mutation any rejected job goes to a person
+detects settled_in_review
+-   if rejected = true ∧ k = .heal then .needsHuman
++   if rejected = true then .needsHuman
+
+mutation a version in review is forgotten after a job
+detects settled_in_review
+-   else if st.proposed then .inReview
++   else if st.proposed then .needsHuman
+
+mutation a source with no versions goes back to onboarding
+detects settled_not_busy
+-   else if st.proposed then .inReview
+-   else .needsHuman
++   else if st.proposed then .inReview
++   else .onboarding
+
+mutation a rejected heal leaves the source healing
+detects settled_not_busy
+-   if rejected = true ∧ k = .heal then .needsHuman
++   if rejected = true ∧ k = .heal then .healing
+
+mutation ties on first_seen_at are not broken by notice_id
+detects naive_tie_two_rows
+- def Notice.before (a b : Notice) : Bool := decide (a.seen > b.seen ∨ (a.seen = b.seen ∧ a.id > b.id))
++ def Notice.before (a b : Notice) : Bool := decide (a.seen > b.seen)
+
+mutation the newest notice ranks last
+detects opportunities_newest
+- def Notice.before (a b : Notice) : Bool := decide (a.seen > b.seen ∨ (a.seen = b.seen ∧ a.id > b.id))
++ def Notice.before (a b : Notice) : Bool := decide (a.seen < b.seen ∨ (a.seen = b.seen ∧ a.id < b.id))
+
+mutation row_number is not partitioned by opportunity
+detects rowNumber_one_iff
+-   (ns.filter fun m => m.opp == n.opp && m.before n).length + 1
++   (ns.filter fun m => m.before n).length + 1
+
+mutation the join keeps rank 2 as well
+detects opportunities_one_each
+-   ns.filter fun n => rowNumber ns n == 1
++   ns.filter fun n => rowNumber ns n ≤ 2
+
+mutation the join takes rows from outside the notice table
+detects opportunities_stored
+-   ns.filter fun n => rowNumber ns n == 1
++   ns.filter (fun n => rowNumber ns n == 1) ++ [⟨0, 0, 0⟩]
+
+mutation the snapshot count is partitioned by notice
+detects snapshots_counts
+-   (ns.filter fun m => m.opp == n.opp).length
++   (ns.filter fun m => m.id == n.id).length
