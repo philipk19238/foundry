@@ -1,0 +1,24 @@
+name: check
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  replay:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.11.2"
+      - run: uv sync
+      - name: Replay the fixtures of every site this change touches
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            uv run python -m portals.core check --changed "origin/${{ github.base_ref }}"
+          else
+            uv run python -m portals.core check $(uv run python -c "from pathlib import Path; from portals.core.sites import Sites; print(' '.join(s.key for s in Sites(Path('.')).all()))")
+          fi
