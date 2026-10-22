@@ -87,7 +87,8 @@ class AgentJob(BaseModel, frozen=True):
 
 
 class TrialView(BaseModel):
-    """What a test crawl found, read back from the stats it finished with."""
+    """What a test crawl found, read back from the stats it finished with. A crawl still going (or one given up on)
+    has only its progress in its stats, and nothing found yet."""
 
     scraper: ScraperView
     crawl: Crawl
@@ -95,7 +96,7 @@ class TrialView(BaseModel):
 
     @classmethod
     def of(cls, run: RunView) -> "TrialView | None":
-        if run.kind != RunKind.TRIAL or run.stats is None:
+        if run.kind != RunKind.TRIAL or run.stats is None or run.progress is not None:
             return None
         return cls.model_validate(run.stats)
 
