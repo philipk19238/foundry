@@ -9,6 +9,8 @@ API = "https://api.github.com"
 BASE = "main"
 MESSAGE = 300
 PULLS = TypeAdapter(list[models.Pull])
+FILES = TypeAdapter(list[models.PullFile])
+FILES_PAGE = "100"
 
 
 class GitHubPulls:
@@ -32,10 +34,26 @@ class GitHubPulls:
         new = {"title": title, "head": branch, "base": BASE, "body": body}
         return models.Pull.model_validate_json(await self._call("open a pull request", "POST", "pulls", None, new))
 
+    async def open_pulls(self) -> list[models.Pull]:
+        """Every open pull request on the repo, newest first."""
+        found = await self._call("list pull requests", "GET", "pulls", {"state": "open", "per_page": FILES_PAGE}, None)
+        return PULLS.validate_json(found)
+
     async def get(self, number: int) -> models.Pull:
         return models.Pull.model_validate_json(
             await self._call("read the pull request", "GET", f"pulls/{number}", None, None)
         )
+
+    async def files(self, number: int) -> list[models.PullFile]:
+        """What a pull request changes, file by file, so its code can be read without leaving foundry."""
+        found = await self._call(
+            "read the pull request's files", "GET", f"pulls/{number}/files", {"per_page": FILES_PAGE}, None
+        )
+        return FILES.validate_json(found)
+
+    async def merge(self, number: int) -> None:
+        """Squash-merges a pull request, as its reviewer would on GitHub; GitHub refuses while required checks fail."""
+        await self._call("merge the pull request", "PUT", f"pulls/{number}/merge", None, {"merge_method": "squash"})
 
     async def _call(
         self, action: str, method: str, path: str, params: dict[str, str] | None, body: dict[str, str] | None

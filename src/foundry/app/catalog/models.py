@@ -142,3 +142,18 @@ class NoticeView(BaseModel):
     metadata: dict[str, JsonValue]
     first_seen_at: dt.datetime
     files: list[FileView]
+
+
+class OpportunityRow(BaseModel):
+    """An opportunity as the Opportunities page lists it: its newest snapshot, the source it came from, and how many
+    snapshots the portal's edits have made."""
+
+    notice: NoticeView
+    source_id: uuid.UUID
+    source: str
+    snapshots: int
+
+    @property
+    def edits(self) -> int:
+        """How many times the portal changed the opportunity after it was first seen."""
+        return self.snapshots - 1

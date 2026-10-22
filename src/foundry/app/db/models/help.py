@@ -2,7 +2,7 @@ import datetime as dt
 import enum
 import uuid
 
-from sqlalchemy import ForeignKey, String, Text
+from sqlalchemy import ForeignKey, Index, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from foundry.app.db.db import Base, UtcDateTime
@@ -20,6 +20,7 @@ class HelpRequest(Base):
     done; the agent waits for that, or gives up when it expires."""
 
     __tablename__ = "help_requests"
+    __table_args__ = (Index("ix_help_requests_status_expires_at", "status", "expires_at"),)
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     run_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("runs.id"), index=True)

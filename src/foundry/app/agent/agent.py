@@ -8,7 +8,6 @@ import uuid
 from pathlib import Path
 from typing import assert_never
 
-import jinja2
 from openai_codex import ApprovalMode, AsyncCodex, AsyncTurnHandle, CodexConfig, Sandbox
 from openai_codex.errors import CodexError
 from openai_codex.generated.v2_all import (
@@ -26,18 +25,14 @@ from foundry.app.agent.models import handoff, outcomes, tasks
 from foundry.app.auth.auth import Users
 from foundry.app.browser.browser import Accounts, Browsers
 from foundry.app.browser.models import Browser
-from foundry.app.catalog.catalog import Catalog
 from foundry.app.core.models import Lease
 from foundry.app.help.models import Notifier
-from foundry.app.repo.client import GitHubPulls
+from foundry.app.pulls.pulls import Proposals
 from foundry.app.repo.models import BRANCHES
 from foundry.app.repo.repo import CHECKOUT, Clones
 from foundry.app.runs.models import EventKind
 from foundry.app.runs.runs import Timeline
-from foundry.app.scrapers.models import CrawlReport, Verdict
-from foundry.app.scrapers.scrapers import Crawls, Versions
 from foundry.app.settings import Settings
-from foundry.core.sites import Sites
 
 logger = logging.getLogger(__name__)
 
@@ -45,10 +40,6 @@ KERNEL_MCP = "https://mcp.onkernel.com/mcp"
 TOOL_SECONDS = 3000
 INBOX_SECONDS = 3
 MAX_RESTARTS = 3
-SAMPLES = 5
-PULLS = jinja2.Environment(
-    loader=jinja2.FileSystemLoader(Path(__file__).parent / "pulls"), trim_blocks=True, lstrip_blocks=True
-)
 
 
 class Narrator:
@@ -83,30 +74,39 @@ class Narrator:
                 return
 
 
-class Handoff:
-    """What the agent's tools leave for its run: the scraper it submitted, and the pull request it opened for a change
-    to foundry itself."""
+class Submissions:
+    """The scraper the agent's `submit` handed in for its run, kept until foundry proposes it."""
 
     def __init__(self, folder: Path) -> None:
-        self._submission = folder / "submission.json"
-        self._pull = folder / "pull.json"
+        self._file = folder / "submission.json"
 
-    def submission(self) -> handoff.Submission | None:
-        if not self._submission.exists():
+    def read(self) -> handoff.Submission | None:
+        if not self._file.exists():
             return None
-        return handoff.Submission.model_validate_json(self._submission.read_text())
+        return handoff.Submission.model_validate_json(self._file.read_text())
 
-    def submit(self, submission: handoff.Submission) -> None:
-        self._submission.write_text(submission.model_dump_json())
+    def save(self, submission: handoff.Submission) -> None:
+        self._file.write_text(submission.model_dump_json())
 
-    def pull(self) -> handoff.ChangePull | None:
-        return handoff.ChangePull.model_validate_json(self._pull.read_text()) if self._pull.exists() else None
+    def forget(self) -> None:
+        """Once proposed, a submission is spent: a reopened run proposes again only what it submits anew."""
+        self._file.unlink(missing_ok=True)
 
-    def keep_pull(self, pull: handoff.ChangePull) -> None:
-        self._pull.write_text(pull.model_dump_json())
 
-    def forget_pull(self) -> None:
-        self._pull.unlink(missing_ok=True)
+class ChangePulls:
+    """The pull request the run last opened for a change to foundry itself, which a restart waits on."""
+
+    def __init__(self, folder: Path) -> None:
+        self._file = folder / "pull.json"
+
+    def read(self) -> handoff.ChangePull | None:
+        return handoff.ChangePull.model_validate_json(self._file.read_text()) if self._file.exists() else None
+
+    def keep(self, pull: handoff.ChangePull) -> None:
+        self._file.write_text(pull.model_dump_json())
+
+    def forget(self) -> None:
+        self._file.unlink(missing_ok=True)
 
 
 class Restarts:
@@ -142,7 +142,8 @@ class Workspace:
         self.folder = folder
         self.checkout = folder / CHECKOUT
         self.home = folder / ".codex"
-        self.handoff = Handoff(folder)
+        self.submissions = Submissions(folder)
+        self.change_pulls = ChangePulls(folder)
         self.restarts = Restarts(folder)
         self._thread = folder / "thread.txt"
         self._read = folder / "chat.txt"
@@ -183,9 +184,12 @@ class Workspaces:
         await self._clones.clone(workspace.folder, workspace.branch)
         if workspace.restarts.asked() is not None:
             await self._clones.onto_main(workspace.checkout)
-            workspace.handoff.forget_pull()
+            workspace.change_pulls.forget()
             workspace.restarts.came_back()
             start = handoff.Start.RESTARTED
+        elif start == handoff.Start.REOPENED and await self._clones.landed(workspace.checkout):
+            await self._clones.onto_main(workspace.checkout)
+            workspace.change_pulls.forget()
         return workspace, start
 
 
@@ -217,7 +221,7 @@ class Codex:
         instructions = (
             (Path(__file__).parent / "prompts" / "agent.md")
             .read_text()
-            .format(session_id=browser.session_id, cdp_url=browser.cdp_url)
+            .format(session_id=browser.session_id, cdp_url=browser.cdp_url, python=sys.executable)
         )
         overrides = (
             f"mcp_servers.kernel.url={json.dumps(KERNEL_MCP)}",
@@ -238,6 +242,7 @@ class Codex:
             **os.environ,
             "CODEX_HOME": str(workspace.home),
             "KERNEL_API_KEY": self._settings.kernel_api_key.get_secret_value(),
+            "XDG_STATE_HOME": str(workspace.folder / ".state"),
         }
         cwd = str(workspace.checkout)
         config = CodexConfig(config_overrides=overrides, cwd=cwd, env=environment)
@@ -283,89 +288,6 @@ class Codex:
         return [name for name in names if name in os.environ]
 
 
-def cell(text: str) -> str:
-    """Text that fits in one markdown table cell: on one line, with its pipes escaped."""
-    return " ".join(text.split()).replace("|", "\\|")
-
-
-PULLS.filters.update(cell=cell)
-
-
-class Proposals:
-    """Turns what the agent submitted into a pull request: every site the branch touches must pass its replay, the
-    submitted site gets a staging crawl against the live portal from the branch, and both go in the description so the
-    reviewer sees the scraper work before merging."""
-
-    def __init__(
-        self, clones: Clones, pulls: GitHubPulls, crawls: Crawls, accounts: Accounts, catalog: Catalog,
-        versions: Versions, timeline: Timeline, settings: Settings,
-    ) -> None:  # fmt: skip
-        self._clones = clones
-        self._pulls = pulls
-        self._crawls = crawls
-        self._accounts = accounts
-        self._catalog = catalog
-        self._versions = versions
-        self._timeline = timeline
-        self._base_url = settings.base_url
-
-    async def propose(self, lease: Lease, workspace: Workspace, submission: handoff.Submission) -> outcomes.Outcome:
-        checkout = workspace.checkout
-        await self._clones.commit(checkout, submission.title)
-        changed = await self._clones.changed(checkout)
-        if not changed:
-            return outcomes.Rejection(reason="the branch changes nothing")
-        try:
-            touched = {site.key for site in Sites(checkout).touched(changed)} | {submission.site}
-        except (OSError, ValueError) as error:
-            return outcomes.Rejection(reason=f"the buyer registry does not load: {error}")
-        replays = {key: await self._crawls.replay(checkout, key) for key in sorted(touched)}
-        failed = [key for key, report in replays.items() if not self.passed(report)]
-        if failed:
-            return outcomes.Rejection(reason=f"the replay fails for {', '.join(failed)}")
-        await self._timeline.log(lease.run_id, EventKind.STATUS, f"Replays pass for {', '.join(replays)}.")
-        session = await self._accounts.session(lease.source_id)
-        staging = await self._crawls.live(checkout, submission.site, session, 0)
-        await self._timeline.log(
-            lease.run_id, EventKind.STATUS, f"Staging crawl: {staging.crawl.verdict}, {staging.crawl.valid} listings."
-        )
-        branch = await self._clones.push(checkout)
-        source = await self._catalog.source(lease.source_id)
-        body = self.describe(lease, source.url, branch, submission, replays, staging)
-        pull = await self._pulls.open(branch, submission.title, body)
-        version = await self._versions.propose(lease, submission.site, branch, pull.number)
-        return outcomes.ScraperPull(version=version, url=pull.html_url)
-
-    def passed(self, report: CrawlReport) -> bool:
-        return report.crawl.verdict == Verdict.HEALTHY and report.crawl.valid > 0
-
-    def describe(
-        self, lease: Lease, portal: str, branch: str, submission: handoff.Submission, replays: dict[str, CrawlReport],
-        staging: CrawlReport,
-    ) -> str:  # fmt: skip
-        """A scraper's pull request, from the template every one follows: what it does, how it reads the portal, how
-        to test it, sample output, gaps, and what to check before merging."""
-        return PULLS.get_template("scraper.md").render(
-            portal=portal,
-            branch=branch,
-            run_id=lease.run_id,
-            run_url=f"{self._base_url}/runs/{lease.run_id}",
-            source_id=lease.source_id,
-            source_url=f"{self._base_url}/sources/{lease.source_id}",
-            submission=submission,
-            replays=replays,
-            staging=staging,
-            samples=staging.listings[:SAMPLES],
-            first=staging.listings[0].model_dump_json(indent=2, exclude_defaults=True) if staging.listings else "",
-        )
-
-    def describe_change(self, run_id: uuid.UUID, change: handoff.Change) -> str:
-        """A pull request to foundry itself, from its template: what changes, the blocker, and how it was tested."""
-        return PULLS.get_template("change.md").render(
-            run_id=run_id, run_url=f"{self._base_url}/runs/{run_id}", change=change
-        )
-
-
 class Agent:
     """Carries out one agent task on a source, in a Kernel browser on the source's profile, and turns what the agent
     hands in into a pull request, a fresh session, or a restart on newly merged code."""
@@ -409,9 +331,19 @@ class Agent:
         commit = workspace.restarts.asked()
         if commit is not None:
             return outcomes.Restart(commit=commit)
+        submission = workspace.submissions.read()
+        if submission is not None:
+            outcome = await self._proposals.propose(lease, workspace.checkout, submission)
+            workspace.submissions.forget()
+            return outcome
         if isinstance(task, tasks.Relogin):
             return outcomes.FreshSession()
-        submission = workspace.handoff.submission()
-        if submission is None:
-            return outcomes.Rejection(reason="the agent ended without calling submit")
-        return await self._proposals.propose(lease, workspace, submission)
+        if start != handoff.Start.FRESH:
+            return outcomes.Reply()
+        return outcomes.Rejection(reason="the agent ended without calling submit")
+
+    async def unread(self, run_id: uuid.UUID) -> bool:
+        """Whether people wrote in the run's chat after the agent last read it, as when they wrote while foundry was
+        opening the pull request after the agent's turn."""
+        workspace = self._workspaces.of(run_id)
+        return bool(await self._timeline.from_people(run_id, workspace.read_up_to()))

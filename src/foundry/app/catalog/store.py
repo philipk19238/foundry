@@ -6,7 +6,7 @@ import datetime as dt
 import uuid
 from collections.abc import Mapping, Sequence
 
-from sqlalchemy import bindparam, insert, select, update
+from sqlalchemy import Uuid, bindparam, func, insert, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from foundry.app.catalog import models
@@ -15,6 +15,7 @@ from foundry.app.db.models.catalog import Buyer, File, Notice, Source
 
 _SOURCES = select(Source).order_by(Source.created_at.desc())
 _SOURCE = select(Source).where(Source.id == bindparam("source"))
+_SOURCE_AT = select(Source).where(Source.url == bindparam("url"))
 
 _FENCED = (
     update(Source)
@@ -42,8 +43,33 @@ _NOTICES = (
     .order_by(Notice.first_seen_at.desc())
     .limit(bindparam("limit"))
 )
+_RANKED = (
+    select(
+        Notice.notice_id,
+        func.row_number()
+        .over(partition_by=Notice.opportunity_id, order_by=(Notice.first_seen_at.desc(), Notice.notice_id.desc()))
+        .label("rank"),
+        func.count().over(partition_by=Notice.opportunity_id).label("snapshots"),
+    )
+    .where(or_(bindparam("source", type_=Uuid).is_(None), Notice.source_id == bindparam("source", type_=Uuid)))
+    .subquery()
+)
+_OPPORTUNITIES = (
+    select(Notice, Buyer.name, Source.name, _RANKED.c.snapshots)
+    .join(_RANKED, (_RANKED.c.notice_id == Notice.notice_id) & (_RANKED.c.rank == 1))
+    .join(Source, Source.id == Notice.source_id)
+    .outerjoin(Buyer, Buyer.buyer_id == Notice.buyer_id)
+    .where(or_(Notice.title.ilike(bindparam("match"), escape="\\"), Buyer.name.ilike(bindparam("match"), escape="\\")))
+    .order_by(Notice.first_seen_at.desc(), Notice.notice_id)
+    .limit(bindparam("limit"))
+    .offset(bindparam("skip"))
+)
 _FILES = select(File).where(File.notice_id.in_(bindparam("notices", expanding=True)))
 _FILE = select(File).where(File.notice_id == bindparam("notice"), File.file_id == bindparam("file"))
+
+
+async def source_at(session: AsyncSession, url: str) -> Source | None:
+    return await session.scalar(_SOURCE_AT, {"url": url})
 
 
 async def add_source(session: AsyncSession, url: str, name: str, created_at: dt.datetime) -> Source:
@@ -121,6 +147,25 @@ async def file(session: AsyncSession, notice_id: str, file_id: str) -> File | No
 
 async def notices(session: AsyncSession, source_id: uuid.UUID, limit: int) -> list[models.NoticeView]:
     rows = (await session.execute(_NOTICES, {"source": source_id, "limit": limit})).all()
+    return await _with_files(session, [(notice, buyer) for notice, buyer in rows])
+
+
+async def opportunities(
+    session: AsyncSession, source_id: uuid.UUID | None, words: str, limit: int, skip: int
+) -> list[models.OpportunityRow]:
+    """The newest snapshot of every opportunity, newest first, from one source or all, whose title or buyer holds
+    `words`; each with how many snapshots its portal's edits have made."""
+    escaped = words.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    binds = {"source": source_id, "match": f"%{escaped}%", "limit": limit, "skip": skip}
+    rows = (await session.execute(_OPPORTUNITIES, binds)).all()
+    views = await _with_files(session, [(notice, buyer) for notice, buyer, _, _ in rows])
+    return [
+        models.OpportunityRow(notice=view, source_id=notice.source_id, source=source, snapshots=snapshots)
+        for view, (notice, _, source, snapshots) in zip(views, rows, strict=True)
+    ]
+
+
+async def _with_files(session: AsyncSession, rows: list[tuple[Notice, str | None]]) -> list[models.NoticeView]:
     attached = await session.scalars(_FILES, {"notices": [notice.notice_id for notice, _ in rows]})
     files: dict[str, list[models.FileView]] = {}
     for file in attached:

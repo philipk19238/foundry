@@ -1,3 +1,5 @@
+from urllib.parse import urlencode, urlsplit
+
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 
@@ -15,13 +17,19 @@ _STATUS = (
     (exceptions.NoAgent, status.HTTP_409_CONFLICT),
     (exceptions.SourceBusy, status.HTTP_409_CONFLICT),
     (exceptions.NoScraper, status.HTTP_409_CONFLICT),
+    (exceptions.AgentWorking, status.HTTP_409_CONFLICT),
+    (exceptions.NothingToMerge, status.HTTP_409_CONFLICT),
     (exceptions.Error, status.HTTP_400_BAD_REQUEST),
 )
 
 
 async def _translate(request: Request, error: Exception) -> Response:
+    """Scripts and htmx get the error as JSON; a page's form post goes back to the page, which shows it."""
     if isinstance(error, exceptions.NotSignedIn) and not request.url.path.startswith("/api/"):
         return RedirectResponse(f"/login?next={request.url.path}", status_code=status.HTTP_303_SEE_OTHER)
+    if request.method == "POST" and not request.url.path.startswith("/api/") and "HX-Request" not in request.headers:
+        back = urlsplit(request.headers.get("referer", "/")).path or "/"
+        return RedirectResponse(f"{back}?{urlencode({'error': str(error)})}", status_code=status.HTTP_303_SEE_OTHER)
     code = next(code for kind, code in _STATUS if isinstance(error, kind))
     return JSONResponse({"detail": str(error)}, status_code=code)
 

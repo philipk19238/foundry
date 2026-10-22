@@ -133,6 +133,14 @@ class Clones:
         await self._git.run(checkout, "fetch", "--quiet", "origin", "main")
         return await self._git.run(checkout, "rev-list", "--count", "origin/main..HEAD") != "0"
 
+    async def landed(self, checkout: Path) -> bool:
+        """Whether everything the branch changes is already on the latest `main`, as once its pull request was
+        squash-merged: a new change must then start from `main`, or its pull request conflicts with the merge."""
+        changed = await self.changed(checkout)
+        if not changed:
+            return False
+        return await self._git.succeeds(checkout, "diff", "--quiet", "origin/main", "HEAD", "--", *changed)
+
     async def push(self, checkout: Path) -> str:
         """Pushes the run's branch to GitHub and returns its name. A run owns its branch, so it may rewrite it."""
         branch = await self._git.run(checkout, "branch", "--show-current")

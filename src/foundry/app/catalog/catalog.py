@@ -8,6 +8,7 @@ from foundry.app.core.models import Lease
 from foundry.app.db.db import Sessionmaker, now
 
 NOTICE_PAGE = 200
+OPPORTUNITY_PAGE = 50
 
 
 class Catalog:
@@ -21,6 +22,12 @@ class Catalog:
             source = await store.add_source(session, url, urlsplit(url).hostname or url, now())
             return models.SourceView.model_validate(source)
 
+    async def find(self, url: str) -> models.SourceView | None:
+        """The source already added for this URL, if any."""
+        async with self._sessionmaker() as session:
+            source = await store.source_at(session, url)
+        return None if source is None else models.SourceView.model_validate(source)
+
     async def sources(self) -> list[models.SourceView]:
         async with self._sessionmaker() as session:
             return [models.SourceView.model_validate(source) for source in await store.sources(session)]
@@ -31,17 +38,6 @@ class Catalog:
         if source is None:
             raise exceptions.SourceNotFound(source_id)
         return models.SourceView.model_validate(source)
-
-    async def notices(self, source_id: uuid.UUID) -> list[models.NoticeView]:
-        async with self._sessionmaker() as session:
-            return await store.notices(session, source_id, NOTICE_PAGE)
-
-    async def file(self, notice_id: str, file_id: str) -> models.FileView:
-        async with self._sessionmaker() as session:
-            found = await store.file(session, notice_id, file_id)
-        if found is None:
-            raise exceptions.FileNotFound(notice_id, file_id)
-        return models.FileView.model_validate(found)
 
     async def unseen(self, notices: Sequence[models.ScrapedNotice]) -> list[models.ScrapedNotice]:
         """The notices of a crawl the catalog doesn't have yet; only these need their attachments downloaded."""
@@ -72,3 +68,28 @@ class Catalog:
             amended=changes.count(models.Change.AMENDMENT),
             unchanged=changes.count(models.Change.UNCHANGED),
         )
+
+
+class Opportunities:
+    """What the scrapers stored, for people to read: every opportunity's newest snapshot, a source's notices, and
+    their files."""
+
+    def __init__(self, sessionmaker: Sessionmaker) -> None:
+        self._sessionmaker = sessionmaker
+
+    async def opportunities(self, source_id: uuid.UUID | None, words: str, page: int) -> list[models.OpportunityRow]:
+        """One page of opportunities, newest first; each row is the newest snapshot of one."""
+        async with self._sessionmaker() as session:
+            skip = page * OPPORTUNITY_PAGE
+            return await store.opportunities(session, source_id, words.strip(), OPPORTUNITY_PAGE, skip)
+
+    async def notices(self, source_id: uuid.UUID) -> list[models.NoticeView]:
+        async with self._sessionmaker() as session:
+            return await store.notices(session, source_id, NOTICE_PAGE)
+
+    async def file(self, notice_id: str, file_id: str) -> models.FileView:
+        async with self._sessionmaker() as session:
+            found = await store.file(session, notice_id, file_id)
+        if found is None:
+            raise exceptions.FileNotFound(notice_id, file_id)
+        return models.FileView.model_validate(found)

@@ -19,6 +19,8 @@ FEED_HEARTBEAT = 15.0
 BEAT = dt.timedelta(seconds=30)
 PAGE = 100
 EVENT_PAGE = 500
+TRIAL_LIFETIME = dt.timedelta(minutes=40)
+DEFERRED = "waiting for the job using the portal to finish"
 
 T = TypeVar("T")
 
@@ -54,6 +56,10 @@ class Timeline:
         """What people wrote to the agent after event ``after``, for it to read."""
         async with self._sessionmaker() as session:
             return [models.EventView.model_validate(event) for event in await store.people(session, run_id, after)]
+
+    async def said(self, run_id: uuid.UUID) -> str | None:
+        async with self._sessionmaker() as session:
+            return await store.said(session, run_id)
 
     async def since(self, run_id: uuid.UUID, after: int) -> list[models.EventView]:
         async with self._sessionmaker() as session:
@@ -94,6 +100,14 @@ class Leases:
         async with self._sessionmaker.begin() as session:
             await store.release(session, lease.source_id, lease.run_id, lease.fence)
 
+    async def free(self, source_id: uuid.UUID) -> bool:
+        async with self._sessionmaker() as session:
+            return await store.free(session, source_id, now())
+
+    async def stranded(self) -> list[uuid.UUID]:
+        async with self._sessionmaker() as session:
+            return list(await store.stranded(session, now()))
+
 
 class RunHistory:
     """The runs so far, for the pages and the healing loop."""
@@ -115,6 +129,19 @@ class RunHistory:
     async def of_source(self, source_id: uuid.UUID) -> list[models.RunView]:
         async with self._sessionmaker() as session:
             return [models.RunView.model_validate(run) for run in await store.source_runs(session, source_id, PAGE)]
+
+    async def working_sources(self) -> set[uuid.UUID]:
+        async with self._sessionmaker() as session:
+            return set(await store.working_sources(session))
+
+    async def waiting_sources(self) -> set[uuid.UUID]:
+        async with self._sessionmaker() as session:
+            return set(await store.waiting_sources(session, now()))
+
+    async def last_agent(self, source_id: uuid.UUID) -> models.RunView | None:
+        async with self._sessionmaker() as session:
+            run = await store.last_agent(session, source_id)
+            return None if run is None else models.RunView.model_validate(run)
 
     async def last(self, source_id: uuid.UUID, kind: RunKind) -> models.RunView | None:
         async with self._sessionmaker() as session:
@@ -167,10 +194,23 @@ class Runs:
         """Fails the runs whose worker is gone; the schedule and every boot call this."""
         at = now()
         async with self._sessionmaker.begin() as session:
-            reaped = await store.reap(session, at, at - LEASE)
+            reaped = await store.reap(session, at, at - LEASE, at - TRIAL_LIFETIME)
         for run_id in reaped:
             await self._timeline.log(run_id, models.EventKind.ERROR, "Lost its worker before finishing.")
         return len(reaped)
+
+    async def woken(self, source_id: uuid.UUID) -> list[uuid.UUID]:
+        async with self._sessionmaker.begin() as session:
+            return list(await store.wake(session, source_id))
+
+    async def defer(self, run_id: uuid.UUID) -> None:
+        """Puts an agent job back to wait for the run holding its source, instead of skipping it, so what a person
+        asked for still happens once that run ends."""
+        async with self._sessionmaker.begin() as session:
+            await store.defer(session, run_id, DEFERRED)
+        await self._timeline.log(
+            run_id, models.EventKind.STATUS, "Another job is using the portal; I'll start when it ends."
+        )
 
     async def finish(
         self, run_id: uuid.UUID, status: RunStatus, summary: str, stats: dict[str, JsonValue] | None = None
@@ -226,6 +266,11 @@ class Queue:
     async def reopen(self, run_id: uuid.UUID) -> None:
         """Carries an ended agent run on, in the same conversation and workspace, because someone wrote to it."""
         if await self._pauses.reopen(run_id):
+            await self._dispatcher.dispatch(run_id)
+
+    async def wake(self, source_id: uuid.UUID) -> None:
+        """Hands the source's deferred agent jobs to the dispatcher again; called whenever a run lets go of it."""
+        for run_id in await self._runs.woken(source_id):
             await self._dispatcher.dispatch(run_id)
 
     async def redeploy(self, run_id: uuid.UUID) -> None:

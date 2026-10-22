@@ -22,6 +22,9 @@ class EventKind(enum.StrEnum):
     ERROR = "error"
 
 
+ACTIVE = (RunStatus.QUEUED, RunStatus.DEFERRED, RunStatus.RUNNING, RunStatus.WAITING, RunStatus.RESTARTING)
+
+
 class RunView(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -39,11 +42,11 @@ class RunView(BaseModel):
     @property
     def has_agent(self) -> bool:
         """Runs an agent talks in: onboarding, healing, signing in again."""
-        return self.kind in (RunKind.ONBOARD, RunKind.HEAL, RunKind.RELOGIN)
+        return self.kind.is_agent
 
     @property
     def is_active(self) -> bool:
-        return self.status in (RunStatus.QUEUED, RunStatus.RUNNING, RunStatus.WAITING, RunStatus.RESTARTING)
+        return self.status in ACTIVE
 
 
 CHAT = (EventKind.MESSAGE, EventKind.PERSON, EventKind.ANSWER, EventKind.HELP, EventKind.NOTE)

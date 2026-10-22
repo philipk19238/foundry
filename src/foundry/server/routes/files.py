@@ -5,7 +5,7 @@ from fastapi import APIRouter, status
 from fastapi.responses import FileResponse, RedirectResponse, Response
 
 from foundry.app import exceptions
-from foundry.app.catalog.catalog import Catalog
+from foundry.app.catalog.catalog import Opportunities
 from foundry.app.files.client import FolderBucket
 from foundry.app.files.models import Bucket
 from foundry.server.routes.auth import SignedIn
@@ -15,8 +15,8 @@ router = APIRouter(prefix="/files")
 
 @router.get("/{notice_id}/{file_id}")
 async def download(notice_id: str, file_id: str, services: SignedIn) -> Response:
-    catalog, bucket = await services.aget(Catalog, Bucket)
-    file = await catalog.file(notice_id, file_id)
+    opportunities, bucket = await services.aget(Opportunities, Bucket)
+    file = await opportunities.file(notice_id, file_id)
     url = file.url if file.sha256 is None else await bucket.link(file.sha256, file.name)
     return RedirectResponse(url, status_code=status.HTTP_307_TEMPORARY_REDIRECT)
 

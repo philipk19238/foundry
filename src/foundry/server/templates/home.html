@@ -1,45 +1,47 @@
 {% extends "base.html" %}
 {% block body %}
-{% if help %}
-<section class="alert">
-  <strong>✋ {{ help | length }} agent{{ "s" if help | length > 1 }} waiting for a person.</strong>
-  {% for request_ in help %}<a href="/help/{{ request_.id }}">{{ request_.reason }}</a>{% endfor %}
-</section>
-{% endif %}
+<div class="desk">
+  <header class="d-head">
+    <h1>Scrapers</h1>
+  </header>
 
-{% if user.is_admin %}
-<section class="card">
-  <h2>Add a portal</h2>
-  <form method="post" action="/sources" class="row">
-    <input name="url" type="url" placeholder="https://bids.example.gov" required>
-    <button>Start the agent</button>
+  {% if help %}
+  <section class="next waiting">
+    <div class="next-text">
+      <h2>{{ help | length }} agent{{ "s need" if help | length > 1 else " needs" }} you</h2>
+      {% for request_ in help %}<p><a href="/help/{{ request_.id }}">{{ request_.reason | truncate(160) }}</a></p>{% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
+  {% if user.is_admin %}
+  <form method="post" action="/sources" class="ask">
+    <input name="url" type="url" placeholder="Paste a portal's listing URL" required aria-label="Portal URL">
+    <button class="btn">Build a scraper</button>
   </form>
-  <p class="muted small">The agent signs in (or signs up), finds the portal's API, writes a scraper, checks it against what it captured, and registers it. If it gets stuck it emails you a takeover link.</p>
-</section>
-{% endif %}
+  <details class="more-ways">
+    <summary>Wrote a scraper yourself?</summary>
+    <form method="post" action="/sources/import" class="ask small-ask">
+      <input name="number" type="number" min="1" required placeholder="Pull request number" aria-label="Pull request number">
+      <button class="btn quiet">Import it for review</button>
+    </form>
+    <p class="small muted">Open a pull request that adds a <code>buyer.toml</code> and its spider. Foundry picks open pull requests up every 10 minutes; importing one shows it now. It gets the same test scrape, code view and approval as an agent's.</p>
+  </details>
+  {% endif %}
 
-<section>
-  <h2>Sources</h2>
-  <table>
-    <thead><tr><th>Portal</th><th>Status</th><th>Scraper</th><th>Last count</th><th>Added</th></tr></thead>
-    <tbody>
+  <ul class="orders">
     {% for source in sources %}
-      <tr>
-        <td><a href="/sources/{{ source.id }}">{{ source.name }}</a><div class="muted small">{{ source.url }}</div></td>
-        <td>{% with value=source.status %}{% include "_status.html" %}{% endwith %}{% if source.heals %} <span class="muted small">{{ source.heals }} repair{{ "s" if source.heals > 1 }}</span>{% endif %}</td>
-        <td>{% if source.scraper_version %}v{{ source.scraper_version }}{% else %}<span class="muted">—</span>{% endif %}</td>
-        <td>{{ source.previous_valid }}</td>
-        <td class="muted small">{{ source.created_at.strftime("%b %d %H:%M") }}</td>
-      </tr>
+    {% set stage = stages[source.id] %}
+    <li>
+      <a href="/sources/{{ source.id }}">
+        <span class="o-name">{{ source.name }}<span class="o-url">{{ source.url }}</span></span>
+        <span class="o-count num">{% if source.scraper_version %}{{ source.previous_valid }} listings{% endif %}</span>
+        <span class="stage {{ stage }}">{{ stage.label }}</span>
+      </a>
+    </li>
     {% else %}
-      <tr><td colspan="5" class="muted">No portals yet.</td></tr>
+    <li class="empty">Paste a portal's URL above and the agent builds its scraper.</li>
     {% endfor %}
-    </tbody>
-  </table>
-</section>
-
-<section>
-  <h2>Recent runs</h2>
-  {% include "_runs.html" %}
-</section>
+  </ul>
+</div>
 {% endblock %}

@@ -3,7 +3,7 @@ import enum
 import uuid
 
 from pydantic import JsonValue
-from sqlalchemy import ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from foundry.app.db.db import Base, Json, UtcDateTime
@@ -59,10 +59,14 @@ class Notice(Base):
     hashes everything, so an edit on the portal is a new row and a re-scrape of the same content is no row."""
 
     __tablename__ = "notices"
+    __table_args__ = (
+        Index("ix_notices_opportunity_id_first_seen_at", "opportunity_id", "first_seen_at", "notice_id"),
+        Index("ix_notices_source_id_first_seen_at", "source_id", "first_seen_at"),
+    )
 
     notice_id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    opportunity_id: Mapped[str] = mapped_column(String(64), index=True)
-    source_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("sources.id"), index=True)
+    opportunity_id: Mapped[str] = mapped_column(String(64))
+    source_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("sources.id"))
     buyer_id: Mapped[str | None] = mapped_column(ForeignKey("buyers.buyer_id"))
     external_id: Mapped[str | None] = mapped_column(String(512))
     url: Mapped[str] = mapped_column(String(2048))

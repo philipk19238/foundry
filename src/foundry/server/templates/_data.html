@@ -1,0 +1,50 @@
+<section class="data">
+  {% if rows %}
+  <ul class="listings">
+    {% for row in rows %}{% with across=false %}{% include "_opportunity.html" %}{% endwith %}{% endfor %}
+  </ul>
+  <p class="small"><a href="/opportunities?source={{ source.id }}">Search all of this portal's opportunities</a></p>
+  {% else %}
+  <p class="empty">No data yet. Once a version is merged, every scrape saves what's new or changed here.</p>
+  {% endif %}
+
+  <details class="history">
+    <summary>Jobs and versions</summary>
+    {% with runs=progress.runs %}{% include "_runs.html" %}{% endwith %}
+    <table>
+      <thead><tr><th>Version</th><th>Site</th><th>State</th><th>Pull request</th></tr></thead>
+      <tbody>
+      {% for scraper in progress.scrapers %}
+        <tr><td>v{{ scraper.version }}</td><td><code>{{ scraper.site }}</code></td><td>{% with value=scraper.state %}{% include "_status.html" %}{% endwith %}</td>
+          <td><a href="https://github.com/{{ repo }}/pull/{{ scraper.pull }}" target="_blank" rel="noopener">#{{ scraper.pull }}</a></td></tr>
+      {% else %}<tr><td colspan="4" class="muted">No versions yet.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+    {% if user.is_admin %}
+    {% set live = source.scraper_version is not none %}
+    {% set agent_busy = progress.agent and progress.agent.is_active %}
+    <div class="group">
+      <h3><span class="job crawl">Scrape</span></h3>
+      <p>Runs the merged scraper's code against the portal and saves what's new. No agent involved.</p>
+      <div class="row">
+        {% if live %}<form method="post" action="/sources/{{ source.id }}/runs"><input type="hidden" name="kind" value="refresh"><button class="btn quiet small">Scrape now</button></form>{% endif %}
+        {% if newest and newest.state == "proposed" %}<form method="post" action="/sources/{{ source.id }}/runs"><input type="hidden" name="kind" value="review"><button class="btn quiet small">Check for a merge</button></form>{% endif %}
+        {% if not live and not (newest and newest.state == "proposed") %}<span class="small muted">Nothing to scrape until a version is merged.</span>{% endif %}
+      </div>
+    </div>
+    <div class="group">
+      <h3><span class="job agent">Agent job</span></h3>
+      {% if agent_busy %}
+      <p>The agent is already working. Talk to it in the <a href="/sources/{{ source.id }}/chat">conversation</a>.</p>
+      {% else %}
+      <p>Starts the agent on the portal. Follow it and talk to it in the conversation.</p>
+      <div class="row">
+        {% if live %}<form method="post" action="/sources/{{ source.id }}/runs"><input type="hidden" name="kind" value="heal"><button class="btn quiet small">Repair the scraper</button></form>{% endif %}
+        <form method="post" action="/sources/{{ source.id }}/runs"><input type="hidden" name="kind" value="relogin"><button class="btn quiet small">Sign in again</button></form>
+        <form method="post" action="/sources/{{ source.id }}/runs"><input type="hidden" name="kind" value="onboard"><button class="btn quiet small">Build from scratch</button></form>
+      </div>
+      {% endif %}
+    </div>
+    {% endif %}
+  </details>
+</section>

@@ -1,12 +1,15 @@
-"""A portal's sign-in state on its source row: the account the agent made, and the session read from its browser."""
+"""A portal's sign-in state: the account the agent made and the session read from its browser, on the source row,
+and its other credentials, one row per name."""
 
 import uuid
+from collections.abc import Sequence
 
 from pydantic import JsonValue
-from sqlalchemy import and_, bindparam, select, update
+from sqlalchemy import and_, bindparam, delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from foundry.app.core.models import Lease
+from foundry.app.db.models.access import Credential
 from foundry.app.db.models.catalog import Source
 
 _HELD = and_(
@@ -21,6 +24,9 @@ _SET_SESSION = update(Source).where(_HELD).values(session=bindparam("cookies")).
 _SET_ACCOUNT = (
     update(Source).where(_HELD).values(username=bindparam("login"), secret=bindparam("sealed")).returning(Source.id)
 )
+
+_CREDENTIALS = select(Credential).where(Credential.source_id == bindparam("source")).order_by(Credential.name)
+_FORGET = delete(Credential).where(Credential.source_id == bindparam("source"), Credential.name == bindparam("label"))
 
 
 def _held(lease: Lease) -> dict[str, uuid.UUID | int]:
@@ -44,3 +50,17 @@ async def set_session(session: AsyncSession, lease: Lease, cookies: dict[str, Js
 
 async def set_account(session: AsyncSession, lease: Lease, username: str, sealed: str) -> bool:
     return await session.scalar(_SET_ACCOUNT, {**_held(lease), "login": username, "sealed": sealed}) is not None
+
+
+async def credentials(session: AsyncSession, source_id: uuid.UUID) -> Sequence[Credential]:
+    return (await session.scalars(_CREDENTIALS, {"source": source_id})).all()
+
+
+async def put_credential(session: AsyncSession, credential: Credential) -> None:
+    """Saves a credential, replacing the one with its name."""
+    await session.execute(_FORGET, {"source": credential.source_id, "label": credential.name})
+    session.add(credential)
+
+
+async def forget_credential(session: AsyncSession, source_id: uuid.UUID, name: str) -> None:
+    await session.execute(_FORGET, {"source": source_id, "label": name})

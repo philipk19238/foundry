@@ -106,6 +106,14 @@ class Site(BaseModel, frozen=True):
     fixtures: Path
 
 
+class Access(BaseModel, frozen=True):
+    """Everything a live crawl signs in with: the session read from the agent's browser, and the portal's saved
+    credentials by name (API keys, tokens, a second login) for spiders that sign in themselves."""
+
+    session: Session | None = None
+    credentials: dict[str, str] = {}
+
+
 class CrawlJob(BaseModel, frozen=True):
     """What the crawl process is told: the spider to run, where to write, and either a session (live) or fixtures
     (replayed offline)."""
@@ -115,6 +123,7 @@ class CrawlJob(BaseModel, frozen=True):
     listings: Path
     stats: Path
     session: Session | None = None
+    credentials: dict[str, str] = {}
     fixtures: list[Fixture] | None = None
 
 

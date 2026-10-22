@@ -6,9 +6,6 @@
     {% with value=scraper.state %}{% include "_status.html" %}{% endwith %}
     <a href="https://github.com/{{ repo }}/pull/{{ scraper.pull }}" target="_blank" rel="noopener">pull request #{{ scraper.pull }} ↗</a>
   </div>
-  {% if user.is_admin %}
-  <form method="post" action="/sources/{{ scraper.source_id }}/runs"><input type="hidden" name="kind" value="trial">
-    <button title="Crawls the portal live with this scraper and shows every listing; stores nothing">▶ Try it</button></form>
-  {% endif %}
+  <a class="btn quiet small" href="/sources/{{ scraper.source_id }}/test">Test it on its page</a>
 </section>
 {% endfor %}

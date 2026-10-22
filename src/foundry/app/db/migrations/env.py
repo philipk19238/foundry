@@ -5,7 +5,7 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from foundry.app.db.db import Base
-from foundry.app.db.models import auth, catalog, help, runs  # noqa: F401
+from foundry.app.db.models import access, auth, catalog, help, runs  # noqa: F401
 from foundry.app.settings import settings
 
 

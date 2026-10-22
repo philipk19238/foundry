@@ -1,0 +1,17 @@
+<section class="code">
+  <div class="test-bar">
+    <p>Pull request #{{ newest.pull }} on the <code>{{ newest.branch }}</code> branch.{% if files %} {{ files | length }} file{{ "s" if files | length != 1 }} changed.{% endif %}</p>
+    <a class="btn quiet" href="https://github.com/{{ repo }}/pull/{{ newest.pull }}" target="_blank" rel="noopener">Open on GitHub</a>
+  </div>
+  {% if unread %}<p class="empty">Couldn't load the code from GitHub: {{ unread }}</p>{% endif %}
+  {% for file in files %}
+  <details class="diff"{% if file.patch and not file.filename.endswith(".json") %} open{% endif %}>
+    <summary><span class="d-file">{{ file.filename }}</span><span class="d-add num">+{{ file.additions }}</span><span class="d-del num">−{{ file.deletions }}</span></summary>
+    {% if file.patch %}
+    <pre>{% for line in file.patch.splitlines() %}<span class="{{ 'a' if line.startswith('+') else 'r' if line.startswith('-') else 'h' if line.startswith('@@') else '' }}">{{ line }}</span>{% endfor %}</pre>
+    {% else %}
+    <p class="empty small">GitHub doesn't show a diff for this file. Open it on GitHub.</p>
+    {% endif %}
+  </details>
+  {% endfor %}
+</section>

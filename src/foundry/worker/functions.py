@@ -95,15 +95,16 @@ async def redeploy(run_id: str) -> None:
 @app.function(schedule=modal.Period(hours=REFRESH_EVERY_HOURS))
 async def refresh_ready() -> None:
     async with services() as container:
-        jobs = await container.aget(foundry.Jobs)
-        await jobs.refresh_ready()
+        schedule = await container.aget(foundry.Schedule)
+        await schedule.refresh_ready()
 
 
 @app.function(schedule=modal.Period(minutes=REVIEW_EVERY_MINUTES))
 async def review_pending() -> None:
     async with services() as container:
-        jobs = await container.aget(foundry.Jobs)
-        await jobs.review_pending()
+        schedule, imports = await container.aget(foundry.Schedule, foundry.Imports)
+        await schedule.review_pending()
+        await imports.sync()
 
 
 @app.function(max_containers=1)

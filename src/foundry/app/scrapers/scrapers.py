@@ -15,7 +15,7 @@ from foundry.app.db.db import Sessionmaker, now
 from foundry.app.db.models.catalog import SourceStatus
 from foundry.app.files.models import Bucket
 from foundry.app.scrapers import models, store
-from foundry.core.models import CrawlJob, CrawlStats, Fixture, Listing, Session, Site
+from foundry.core.models import Access, CrawlJob, CrawlStats, Fixture, Listing, Session, Site
 from foundry.core.sites import Sites
 
 CRAWL_TIMEOUT = 1800
@@ -40,6 +40,16 @@ class Versions:
         async with self._sessionmaker() as session:
             scraper = await store.proposed(session, source_id)
         return models.Proposal.model_validate(scraper) if scraper is not None else None
+
+    async def of_pull(self, source_id: uuid.UUID, pull: int) -> int | None:
+        async with self._sessionmaker() as session:
+            return await store.of_pull(session, source_id, pull)
+
+    async def standing(self, source_id: uuid.UUID) -> models.Standing:
+        async with self._sessionmaker() as session:
+            live = await store.current(session, source_id) is not None
+            proposed = await store.proposed(session, source_id) is not None
+        return models.Standing(live=live, proposed=proposed)
 
     async def propose(self, lease: Lease, site: str, branch: str, pull: int) -> int:
         async with self._sessionmaker.begin() as session:
@@ -73,6 +83,10 @@ class ScraperHistory:
         async with self._sessionmaker() as session:
             return [models.ScraperView.model_validate(scraper) for scraper in await store.of_source(session, source_id)]
 
+    async def reviewing_sources(self) -> set[uuid.UUID]:
+        async with self._sessionmaker() as session:
+            return set(await store.reviewing_sources(session))
+
     async def newest(self, source_id: uuid.UUID) -> models.ScraperView:
         async with self._sessionmaker() as session:
             scraper = await store.newest(session, source_id)
@@ -89,8 +103,8 @@ class Crawls:
     def __init__(self) -> None:
         self._python = sys.executable
 
-    async def live(self, tree: Path, key: str, session: Session | None, previous_valid: int) -> models.CrawlReport:
-        return await self._run(tree, self.site(tree, key), session, None, previous_valid)
+    async def live(self, tree: Path, key: str, access: Access, previous_valid: int) -> models.CrawlReport:
+        return await self._run(tree, self.site(tree, key), access, None, previous_valid)
 
     async def replay(self, tree: Path, key: str) -> models.CrawlReport:
         site = self.site(tree, key)
@@ -98,7 +112,7 @@ class Crawls:
             fixtures = models.FIXTURES.validate_json(site.fixtures.read_bytes())
         except (OSError, ValidationError) as error:
             raise exceptions.SiteMissing(key, f"its fixtures don't load: {error}") from error
-        return await self._run(tree, site, None, fixtures, 0)
+        return await self._run(tree, site, Access(), fixtures, 0)
 
     def site(self, tree: Path, key: str) -> Site:
         try:
@@ -107,7 +121,7 @@ class Crawls:
             raise exceptions.SiteMissing(key, str(error)) from error
 
     async def _run(
-        self, tree: Path, site: Site, session: Session | None, fixtures: list[Fixture] | None, previous_valid: int
+        self, tree: Path, site: Site, access: Access, fixtures: list[Fixture] | None, previous_valid: int
     ) -> models.CrawlReport:
         with tempfile.TemporaryDirectory(prefix="foundry-crawl-") as folder:
             root = Path(folder)
@@ -116,7 +130,8 @@ class Crawls:
                 arguments=site.arguments,
                 listings=root / "listings.jsonl",
                 stats=root / "stats.json",
-                session=session,
+                session=access.session,
+                credentials=access.credentials,
                 fixtures=fixtures,
             )
             (root / "job.json").write_text(job.model_dump_json())
@@ -141,6 +156,15 @@ class Crawls:
             return models.CrawlReport(listings=listings, crawl=models.Crawl.of(stats, previous_valid))
 
 
+BROWSER_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/130.0 Safari/537.36"
+    ),
+    "Accept": "*/*",
+}
+
+
 class Downloads:
     """Fetches attachments with the portal session and keeps each in the bucket under the SHA-256 of its bytes. A
     file that will not download is stored without a hash rather than failing the crawl."""
@@ -150,7 +174,8 @@ class Downloads:
         self._bucket = bucket
 
     async def fetch(self, listing: Listing, session: Session | None) -> tuple[StoredFile, ...]:
-        headers = {**session.headers, "Cookie": session.cookie_header} if session is not None else {}
+        signed_in = {**session.headers, "Cookie": session.cookie_header} if session is not None else {}
+        headers = {**BROWSER_HEADERS, "Referer": listing.url, **signed_in}
         stored = []
         for link in listing.files:
             try:

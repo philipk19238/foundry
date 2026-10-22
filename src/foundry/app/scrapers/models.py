@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, TypeAdapter
 
 from foundry.app.catalog.models import IngestCounts
 from foundry.app.db.models.catalog import ScraperState, SourceStatus
+from foundry.app.db.models.runs import RunKind
 from foundry.core.models import CrawlStats, Fixture, Listing
 
 MAX_HEALS = 3
@@ -132,3 +133,30 @@ class RefreshReport(BaseModel, frozen=True):
             f"{self.crawl.verdict}: {self.crawl.valid} listings, {self.ingested.new} new, {self.ingested.amended} "
             f"amended, {self.ingested.unchanged} unchanged; source is {self.health.status}"
         )
+
+
+class Standing(BaseModel, frozen=True):
+    """Which versions a source has, which decides its status around an agent job (formal/foundry_rules
+    `Standing`). A source with a live version keeps running and crawling while an agent reworks it; a job that ends
+    without proposing anything puts the source back where its versions say."""
+
+    live: bool
+    proposed: bool
+
+    def working(self, kind: RunKind) -> SourceStatus | None:
+        """The status while the agent works; None leaves it as it is."""
+        if kind == RunKind.HEAL:
+            return SourceStatus.HEALING
+        return None if self.live else SourceStatus.ONBOARDING
+
+    def settled(self) -> SourceStatus:
+        """The status after a job that proposed nothing, or a pull request closed without merging."""
+        if self.live:
+            return SourceStatus.READY
+        if self.proposed:
+            return SourceStatus.IN_REVIEW
+        return SourceStatus.NEEDS_HUMAN
+
+    def rejected(self, kind: RunKind) -> SourceStatus:
+        """The status after a job whose work was rejected: a rejected repair leaves a broken scraper to a person."""
+        return SourceStatus.NEEDS_HUMAN if kind == RunKind.HEAL else self.settled()

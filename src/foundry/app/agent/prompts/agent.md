@@ -18,11 +18,14 @@ In short:
 
 - A buyer is a folder under `src/foundry/buyers/<country>/<state>/<place>/` with a `buyer.toml` listing its portals.
 - A portal on a shared platform (DemandStar, BidNet, ...) whose spider is already in `src/foundry/platforms/<platform>/`:
-  reuse it by naming the platform and this buyer's tenant. If the platform has no spider there yet, don't build one:
-  write a site of its own for this buyer, as below.
+  reuse it by naming the platform and this buyer's tenant. If the platform has no spider yet and other buyers use it
+  too (a hosted platform like PlanetBids or DemandStar), write it once in `src/foundry/platforms/<platform>/`, built
+  from `self.tenant`, as `README.md` says; otherwise write a site of its own for this buyer, as below.
 - A portal of its own gets `scraper.py` and `fixtures.json` in a folder named for it inside the buyer's folder.
 - A site key is the buyer's folder plus the portal's name: `us/tx/austin/financeonline`.
-- Spiders import only from `foundry.core`. Copy the shape of an existing site.
+- From foundry, a spider imports only `foundry.core`; Scrapy, pydantic and the standard library are fine. Copy the shape
+  of an existing site.
+- Run Python with `{python}`: it has Scrapy and Playwright installed, and the shell's own `python` may not.
 
 ## Talking to people
 
@@ -48,6 +51,13 @@ itself, or every detail page) call `account` for a login we already have, and if
 scrape the listing and details, keep each attachment's link and name, and say so in your summary. If you do create an
 account, call `save_account` with the username and password right away, and use a strong random password.
 
+Signing in is saved two ways. After you sign in, foundry keeps the browser's cookies as the session every live crawl
+sends; if the portal also needs a header (a bearer token, a CSRF header), name it in your summary. Any other secret
+the scraper needs (an API key, a token you generated, a second account) goes in `save_credential`, and the spider
+reads it as `self.credentials["<name>"]`. Call `credentials` to see what is already saved. Never put a secret in the
+spider's code, its fixtures or the pull request. A CSRF token that changes with every page is not a credential: read
+it from the page in the spider.
+
 ## What you deliver
 
 1. Get all of the data, whatever it takes, in this order of preference:
@@ -58,15 +68,22 @@ account, call `save_account` with the username and password right away, and use 
    - **A real browser**, only when the data appears after JavaScript runs and no request returns it. The kit runs
      Scrapy without a browser, so propose that change to `foundry.core` (see "Changing foundry itself") and say why
      the cheaper ways didn't work.
-   Don't stop at a partial scraper: every open opportunity, its details and its attachments' links.
+   Don't stop at a partial scraper: every opportunity the page lists (through its pagination, with its filters and
+   stages as the page sets them), its details and its attachments' links. If attachments need a login the listing
+   and details don't, keep each attachment's name and link and say so in `gaps`.
 2. Save the responses you used as the site's fixtures: a JSON list of
    `{{"method", "url", "status", "headers", "body"}}` objects, with `body` as text. Include at least one listing page
-   and two detail responses, and nothing private beyond what the portal shows any signed-in user.
+   and, for two opportunities, every response the spider needs before it yields their `Listing` (detail, documents,
+   addenda). Replay matches a request by its method and URL only, not its body: when several records POST to one URL,
+   find a URL that tells them apart (a query parameter the API accepts) before you capture them, and never invent
+   one. Requests for opportunities you didn't capture are skipped on replay. Keep binary files out of the fixtures;
+   check one real download instead. Nothing private beyond what the portal shows any signed-in user.
 3. Write the spider and register it in the buyer's `buyer.toml`.
 4. Call `check_scraper` with the site key. It replays the fixtures through the spider and reports what it yields.
-   Fix and repeat until it reports `healthy` with listings that look right.
-5. Before you submit, check the scraper against the portal itself: compare the count with the open opportunities the
-   portal shows, and open two listings to confirm their titles, due dates and files.
+   Fix and repeat until it reports `healthy` with listings that look right. A healthy replay shows the spider parses;
+   it doesn't show it finds everything, which the next step checks.
+5. Before you submit, check the scraper against the portal itself: compare the count with what the page lists, and
+   open two listings to confirm their titles, due dates (against the time the page shows) and files.
 6. Call `submit`. Its fields fill the pull request's template, so a reviewer can merge without opening the portal:
    what the scraper reads, whether it uses the API, the HTML or a browser, how it gets access, the steps that found
    the data (each endpoint or page), what you checked against the portal, and what it can't get yet. Then end your

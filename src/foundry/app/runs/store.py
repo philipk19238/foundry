@@ -11,8 +11,9 @@ from sqlalchemy import and_, bindparam, exists, insert, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from foundry.app.db.models.catalog import Source
+from foundry.app.db.models.help import HelpRequest, HelpStatus
 from foundry.app.db.models.runs import Event, Run, RunKind, RunStatus
-from foundry.app.runs.models import EventKind
+from foundry.app.runs.models import ACTIVE, EventKind
 
 _HELD = and_(
     Source.id == bindparam("source"),
@@ -50,6 +51,12 @@ _LAST = (
     .order_by(Run.finished_at.desc())
     .limit(1)
 )
+_SAID = (
+    select(Event.text)
+    .where(Event.run_id == bindparam("run"), Event.kind == EventKind.MESSAGE)
+    .order_by(Event.id.desc())
+    .limit(1)
+)
 _EVENTS = (
     select(Event)
     .where(Event.run_id == bindparam("run"), Event.id > bindparam("after"))
@@ -68,15 +75,61 @@ _PEOPLE = (
     .where(Event.run_id == bindparam("run"), Event.kind == EventKind.PERSON, Event.id > bindparam("after"))
     .order_by(Event.id)
 )
+_LIVE_HELP = (HelpStatus.OPEN, HelpStatus.CLAIMED)
 _ACTIVE = (RunStatus.QUEUED, RunStatus.RUNNING, RunStatus.WAITING)
 _LIVE_LEASE = exists().where(
     Source.id == Run.source_id, Source.lease_run_id == Run.id, Source.lease_expires_at > bindparam("now")
 )
 _REAP = (
     update(Run)
-    .where(Run.status.in_(_ACTIVE), Run.created_at < bindparam("before"), ~_LIVE_LEASE)
+    .where(
+        Run.status.in_(_ACTIVE),
+        Run.created_at < bindparam("before"),
+        ~_LIVE_LEASE,
+        or_(Run.kind != RunKind.TRIAL, Run.created_at < bindparam("trials_before")),
+    )
     .values(status=RunStatus.FAILED, summary="lost its worker before finishing", finished_at=bindparam("now"))
     .returning(Run.id)
+)
+_DEFER = (
+    update(Run)
+    .where(Run.id == bindparam("run"), Run.status == RunStatus.RUNNING)
+    .values(status=RunStatus.DEFERRED, summary=bindparam("why"))
+)
+_WAKE = (
+    update(Run)
+    .where(Run.source_id == bindparam("source"), Run.status == RunStatus.DEFERRED)
+    .values(status=RunStatus.QUEUED, summary=None)
+    .returning(Run.id)
+)
+_FREE = select(Source.id).where(
+    Source.id == bindparam("source"), or_(Source.lease_run_id.is_(None), Source.lease_expires_at <= bindparam("now"))
+)
+_STRANDED = (
+    select(Run.source_id)
+    .where(
+        Run.status == RunStatus.DEFERRED,
+        ~exists().where(Source.id == Run.source_id, Source.lease_expires_at > bindparam("now")),
+    )
+    .distinct()
+)
+_WORKING = (
+    select(Run.source_id)
+    .where(Run.kind.in_((RunKind.ONBOARD, RunKind.HEAL, RunKind.RELOGIN)), Run.status.in_(ACTIVE))
+    .distinct()
+)
+_WAITING = (
+    select(Run.source_id)
+    .join(HelpRequest, HelpRequest.run_id == Run.id)
+    .where(HelpRequest.status.in_(_LIVE_HELP), HelpRequest.expires_at > bindparam("now"))
+    .distinct()
+)
+_AGENTS = (RunKind.ONBOARD, RunKind.HEAL, RunKind.RELOGIN)
+_LAST_AGENT = (
+    select(Run)
+    .where(Run.source_id == bindparam("source"), Run.kind.in_(_AGENTS))
+    .order_by(Run.status.in_(ACTIVE).desc(), Run.created_at.desc())
+    .limit(1)
 )
 _SET_STATUS = update(Run).where(Run.id == bindparam("run")).values(status=bindparam("state"))
 _ENDED = (RunStatus.SUCCEEDED, RunStatus.FAILED, RunStatus.SKIPPED)
@@ -187,6 +240,48 @@ async def events(session: AsyncSession, run_id: uuid.UUID, after: int, limit: in
     return (await session.scalars(_EVENTS, {"run": run_id, "after": after, "limit": limit})).all()
 
 
-async def reap(session: AsyncSession, at: dt.datetime, before: dt.datetime) -> Sequence[uuid.UUID]:
-    """Fails every active run older than ``before`` that holds no live lease: its worker died or restarted."""
-    return (await session.scalars(_REAP, {"now": at, "before": before})).all()
+async def said(session: AsyncSession, run_id: uuid.UUID) -> str | None:
+    """What the run's agent said last."""
+    return await session.scalar(_SAID, {"run": run_id})
+
+
+async def reap(
+    session: AsyncSession, at: dt.datetime, before: dt.datetime, trials_before: dt.datetime
+) -> Sequence[uuid.UUID]:
+    """Fails every active run older than ``before`` that holds no live lease: its worker died or restarted. A test
+    crawl holds no lease at all, so it is failed only once it is older than any crawl can run."""
+    return (await session.scalars(_REAP, {"now": at, "before": before, "trials_before": trials_before})).all()
+
+
+async def defer(session: AsyncSession, run_id: uuid.UUID, why: str) -> None:
+    await session.execute(_DEFER, {"run": run_id, "why": why})
+
+
+async def wake(session: AsyncSession, source_id: uuid.UUID) -> Sequence[uuid.UUID]:
+    """Queues again every agent job deferred on the source; each is returned once, to whoever wakes it."""
+    return (await session.scalars(_WAKE, {"source": source_id})).all()
+
+
+async def last_agent(session: AsyncSession, source_id: uuid.UUID) -> Run | None:
+    """The source's agent job people talk to: the one under way, else the newest."""
+    return await session.scalar(_LAST_AGENT, {"source": source_id})
+
+
+async def free(session: AsyncSession, source_id: uuid.UUID, at: dt.datetime) -> bool:
+    """Whether no run holds the source's lease at ``at``."""
+    return await session.scalar(_FREE, {"source": source_id, "now": at}) is not None
+
+
+async def stranded(session: AsyncSession, at: dt.datetime) -> Sequence[uuid.UUID]:
+    """Sources with deferred agent jobs that nothing holds any more, as when the holder's worker died."""
+    return (await session.scalars(_STRANDED, {"now": at})).all()
+
+
+async def working_sources(session: AsyncSession) -> Sequence[uuid.UUID]:
+    """Sources an agent job is under way on, or waiting to start on."""
+    return (await session.scalars(_WORKING)).all()
+
+
+async def waiting_sources(session: AsyncSession, at: dt.datetime) -> Sequence[uuid.UUID]:
+    """Sources whose agent waits on a person right now."""
+    return (await session.scalars(_WAITING, {"now": at})).all()

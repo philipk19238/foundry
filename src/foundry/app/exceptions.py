@@ -75,6 +75,21 @@ class NoScraper(Error):
         super().__init__(f"Source {source_id} has no scraper yet; onboard it first.")
 
 
+class AgentWorking(Error):
+    def __init__(self, source_id: uuid.UUID) -> None:
+        super().__init__("The agent is still working on this scraper. Approve it once the agent hands in its version.")
+
+
+class NotImportable(Error):
+    def __init__(self, pull: int, why: str) -> None:
+        super().__init__(f"Pull request #{pull} can't be imported: {why}.")
+
+
+class NothingToMerge(Error):
+    def __init__(self, source_id: uuid.UUID) -> None:
+        super().__init__("There is no version waiting for review on this scraper.")
+
+
 class GitFailed(Error):
     def __init__(self, command: str, output: str) -> None:
         super().__init__(f"git {command} failed: {output}")

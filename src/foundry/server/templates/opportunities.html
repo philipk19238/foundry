@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Opportunities · Foundry{% endblock %}
+{% block body %}
+<div class="desk">
+  <header class="d-head">
+    <h1>Opportunities</h1>
+    <p class="muted">Everything the live scrapers have saved. Each row is the newest version of one opportunity.</p>
+  </header>
+
+  <form class="ask" method="get" action="/opportunities" hx-get="/opportunities" hx-target="#rows" hx-select="#rows" hx-swap="outerHTML" hx-push-url="true" hx-trigger="input changed delay:250ms from:input, change from:select">
+    <input name="q" type="search" value="{{ q }}" placeholder="Search titles and buyers" aria-label="Search" autocomplete="off">
+    <select name="source" aria-label="Portal">
+      <option value="">All portals</option>
+      {% for source in sources %}<option value="{{ source.id }}"{% if source_id == source.id %} selected{% endif %}>{{ source.name }}</option>{% endfor %}
+    </select>
+  </form>
+
+  <div id="rows" class="data">
+    {% if rows %}
+    <ul class="listings">
+      {% for row in rows %}{% with across=true %}{% include "_opportunity.html" %}{% endwith %}{% endfor %}
+    </ul>
+    <nav class="pager">
+      {% if page > 0 %}<a class="btn quiet small" href="?q={{ q | urlencode }}&source={{ source_id or '' }}&page={{ page - 1 }}">Newer</a>{% endif %}
+      {% if rows | length == size %}<a class="btn quiet small" href="?q={{ q | urlencode }}&source={{ source_id or '' }}&page={{ page + 1 }}">Older</a>{% endif %}
+    </nav>
+    {% elif q or source_id %}
+    <p class="empty">Nothing matches. Try fewer words or all portals.</p>
+    {% else %}
+    <p class="empty">No opportunities yet. They appear once a scraper is live and has scraped its portal.</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

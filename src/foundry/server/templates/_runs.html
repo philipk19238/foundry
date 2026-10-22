@@ -1,16 +1,15 @@
 <table>
-  <thead><tr><th>Run</th><th>Kind</th><th>Status</th><th>Summary</th><th>Started</th></tr></thead>
+  <thead><tr><th>Job</th><th>Status</th><th>Summary</th><th>Started</th></tr></thead>
   <tbody>
   {% for run in runs %}
     <tr>
-      <td><a class="mono" href="/runs/{{ run.id }}">{{ run.id | string | truncate(8, True, "") }}</a></td>
-      <td>{{ run.kind }}</td>
+      <td>{% with kind=run.kind %}{% if kind.is_agent %}<a href="/runs/{{ run.id }}">{% include "_job.html" %}</a>{% elif kind == "trial" %}<a href="/sources/{{ run.source_id }}/test">{% include "_job.html" %}</a>{% else %}{% include "_job.html" %}{% endif %}{% endwith %}</td>
       <td>{% with value=run.status %}{% include "_status.html" %}{% endwith %}</td>
       <td class="small">{{ run.summary or "" }}</td>
-      <td class="muted small">{{ run.created_at.strftime("%b %d %H:%M:%S") }}</td>
+      <td class="muted small">{{ run.created_at.strftime("%b %d %H:%M") }}</td>
     </tr>
   {% else %}
-    <tr><td colspan="5" class="muted">No runs yet.</td></tr>
+    <tr><td colspan="4" class="muted">No jobs yet.</td></tr>
   {% endfor %}
   </tbody>
 </table>

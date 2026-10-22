@@ -38,6 +38,8 @@ class RunChat:
         run = await self._history.run(run_id)
         if not run.has_agent:
             raise exceptions.NoAgent(run_id)
+        if not run.is_active and not user.is_admin:
+            raise exceptions.NotAllowed("start the agent again")
         async with self._sessionmaker.begin() as session:
             answered = await store.answer(session, run_id, user.id, text, now())
         await self._timeline.wrote(run_id, EventKind.ANSWER if answered else EventKind.PERSON, user.email, text)

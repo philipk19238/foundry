@@ -2,73 +2,60 @@ import uuid
 from collections.abc import AsyncGenerator
 from typing import Annotated
 
-from fastapi import APIRouter, Form, Request, status
+from fastapi import APIRouter, Form, Query, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.templating import Jinja2Templates
+from pydantic import BeforeValidator
 
 from foundry.app.auth.auth import Logins
 from foundry.app.auth.models import UserView
-from foundry.app.catalog.catalog import Catalog
+from foundry.app.catalog.catalog import OPPORTUNITY_PAGE, Catalog, Opportunities
 from foundry.app.db.db import now
-from foundry.app.db.models.catalog import ScraperState
 from foundry.app.db.models.runs import RunKind
 from foundry.app.help.help import HelpQueue, RunChat
-from foundry.app.runs.runs import Queue, RunFeed, RunHistory, Timeline
+from foundry.app.progress.progress import Tracker
+from foundry.app.runs.runs import RunFeed, RunHistory, Timeline
 from foundry.app.scrapers.scrapers import ScraperHistory
 from foundry.app.settings import Settings
-from foundry.server.models import TrialState, TrialView
-from foundry.server.routes.auth import Admin, SignedIn
+from foundry.server.routes.auth import SignedIn
 
 router = APIRouter(default_response_class=HTMLResponse)
 
 
 @router.get("/")
 async def home(request: Request, services: SignedIn) -> Response:
-    templates, user, catalog, runs, desk = await services.aget(
-        Jinja2Templates, UserView, Catalog, RunHistory, HelpQueue
+    templates, user, catalog, tracker, help_queue = await services.aget(
+        Jinja2Templates, UserView, Catalog, Tracker, HelpQueue
     )
     context = {
         "user": user,
         "sources": await catalog.sources(),
-        "runs": await runs.recent(),
-        "help": await desk.live(),
+        "stages": await tracker.stages(),
+        "help": await help_queue.live(),
     }
     return templates.TemplateResponse(request, "home.html", context)
 
 
-@router.post("/sources")
-async def add_source(url: Annotated[str, Form()], services: Admin) -> Response:
-    user, catalog, queue = await services.aget(UserView, Catalog, Queue)
-    source = await catalog.add_source(url.strip())
-    run = await queue.request(source.id, RunKind.ONBOARD, user.id)
-    return RedirectResponse(f"/runs/{run.id}", status_code=status.HTTP_303_SEE_OTHER)
-
-
-@router.get("/sources/{source_id}")
-async def source(request: Request, source_id: uuid.UUID, services: SignedIn) -> Response:
-    templates, user, catalog, runs, settings = await services.aget(
-        Jinja2Templates, UserView, Catalog, RunHistory, Settings
-    )
-    scrapers = await (await services.aget(ScraperHistory)).of_source(source_id)
-    recent = await runs.of_source(source_id)
+@router.get("/opportunities")
+async def opportunities(
+    request: Request,
+    services: SignedIn,
+    q: str = "",
+    source: Annotated[uuid.UUID | None, BeforeValidator(lambda value: value or None)] = None,
+    page: Annotated[int, Query(ge=0)] = 0,
+) -> Response:
+    """Every stored opportunity, newest snapshot of each, searchable by title or buyer and filtered by portal."""
+    templates, user, catalog, stored = await services.aget(Jinja2Templates, UserView, Catalog, Opportunities)
     context = {
         "user": user,
-        "source": await catalog.source(source_id),
-        "newest": next((scraper for scraper in scrapers if scraper.state != ScraperState.CLOSED), None),
-        "scrapers": scrapers,
-        "tried": TrialState.of(await runs.last(source_id, RunKind.TRIAL), recent),
-        "repo": settings.repo,
-        "runs": recent,
-        "notices": await catalog.notices(source_id),
+        "rows": await stored.opportunities(source, q, page),
+        "sources": await catalog.sources(),
+        "q": q,
+        "source_id": source,
+        "page": page,
+        "size": OPPORTUNITY_PAGE,
     }
-    return templates.TemplateResponse(request, "source.html", context)
-
-
-@router.post("/sources/{source_id}/runs")
-async def start_run(source_id: uuid.UUID, kind: Annotated[RunKind, Form()], services: Admin) -> Response:
-    user, queue = await services.aget(UserView, Queue)
-    run = await queue.request(source_id, kind, user.id)
-    return RedirectResponse(f"/runs/{run.id}", status_code=status.HTTP_303_SEE_OTHER)
+    return templates.TemplateResponse(request, "opportunities.html", context)
 
 
 @router.get("/runs/{run_id}")
@@ -77,6 +64,12 @@ async def run(request: Request, run_id: uuid.UUID, services: SignedIn) -> Respon
         Jinja2Templates, UserView, RunHistory, Catalog, Timeline, HelpQueue
     )
     found = await runs.run(run_id)
+    if not found.has_agent:
+        tab = "test" if found.kind == RunKind.TRIAL else "data"
+        return RedirectResponse(f"/sources/{found.source_id}/{tab}", status_code=status.HTTP_303_SEE_OTHER)
+    latest = await runs.last_agent(found.source_id)
+    if latest is not None and latest.id == found.id:
+        return RedirectResponse(f"/sources/{found.source_id}/chat", status_code=status.HTTP_303_SEE_OTHER)
     context = {
         "user": user,
         "run": found,
@@ -84,7 +77,6 @@ async def run(request: Request, run_id: uuid.UUID, services: SignedIn) -> Respon
         "events": await timeline.since(run_id, 0),
         "help": await desk.of_run(run_id),
         "built": await (await services.aget(ScraperHistory)).built_by(run_id),
-        "trial": TrialView.of(found),
         "repo": (await services.aget(Settings)).repo,
     }
     return templates.TemplateResponse(request, "run.html", context)
