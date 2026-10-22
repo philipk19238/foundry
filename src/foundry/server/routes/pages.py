@@ -1,3 +1,4 @@
+import asyncio
 import uuid
 from collections.abc import AsyncGenerator
 from typing import Annotated
@@ -20,6 +21,8 @@ from foundry.app.settings import Settings
 from foundry.server.routes.auth import SignedIn
 
 router = APIRouter(default_response_class=HTMLResponse)
+STREAM_SECONDS = 55
+RECONNECT_MS = 1000
 
 
 @router.get("/")
@@ -102,13 +105,20 @@ async def run_events(request: Request, run_id: uuid.UUID, services: SignedIn, af
 async def stream(request: Request, run_id: uuid.UUID, services: SignedIn, after: int = 0) -> Response:
     """The run's chat, live: each new line is pushed as it is written (server-sent events), as the same out-of-band
     swaps sending a message gets back. A reconnecting browser sends the last line it saw as Last-Event-ID and picks up
-    from there."""
+    from there. Each stream ends after STREAM_SECONDS and the browser reconnects at once, so a deploy can retire the
+    old server in a minute instead of waiting on every open page."""
     templates, user, feed, desk = await services.aget(Jinja2Templates, UserView, RunFeed, HelpQueue)
     page = templates.get_template("events.html")
     since = int(request.headers.get("last-event-id") or after)
+    loop = asyncio.get_running_loop()
+    ends = loop.time() + STREAM_SECONDS
+
+    async def stopped() -> bool:
+        return loop.time() > ends or await request.is_disconnected()
 
     async def frames() -> AsyncGenerator[str, None]:
-        async for update in feed.follow(run_id, since, request.is_disconnected):
+        yield f"retry: {RECONNECT_MS}\n\n"
+        async for update in feed.follow(run_id, since, stopped):
             context = {"user": user, "run": update.run, "events": update.events, "after": update.after}
             html = page.render({**context, "help": await desk.of_run(run_id)})
             yield (

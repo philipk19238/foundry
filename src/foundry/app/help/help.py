@@ -84,7 +84,8 @@ class HelpQueue:
         request = await self.request(help_id)
         if not claimed and not request.is_held_by(user):
             raise exceptions.HelpTaken()
-        await self._timeline.log(request.run_id, EventKind.NOTE, f"{user.email} took over the browser")
+        if claimed:
+            await self._timeline.log(request.run_id, EventKind.NOTE, f"{user.email} took over the browser")
         return request
 
     async def give_back(self, help_id: uuid.UUID, user: UserView) -> None:
