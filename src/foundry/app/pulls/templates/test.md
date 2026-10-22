@@ -1,4 +1,12 @@
 **Test scrape of v{{ scraper.version }}** against the live portal: {{ crawl.verdict }}, {{ crawl.valid }} listings{% if crawl.invalid %}, {{ crawl.invalid }} invalid{% endif %}{% if crawl.crashed %}, crashed{% endif %}. [The job]({{ run_url }}) · [Test tab]({{ test_url }})
+{% if crawl.rate_limited %}
+
+The portal rate-limited it {{ crawl.rate_limited }} times; it slowed to {{ crawl.slowed_to }} s between requests.
+{% endif %}
+{% if crawl.challenged %}
+
+Bot checks stopped {{ crawl.challenged }} requests.
+{% endif %}
 {% if crawl.refused %}
 
 The portal turned the scraper away: {{ crawl.refused }}.

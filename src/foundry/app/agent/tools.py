@@ -103,7 +103,8 @@ async def submit(
     - `title`: the buyer and portal, such as "Add City of Paso Robles (DemandStar)".
     - `summary`: what the scraper reads, in two or three sentences.
     - `method`: `api`, `html` or `browser`, whichever the scraper uses.
-    - `access`: public, or how it signs in and with which saved account, and why it needs to.
+    - `access`: public, or how it signs in and with which saved account, and why it needs to; what each endpoint
+      needs (the headers and cookies `needs` found, and where they come from); and the pace it runs at.
     - `process`: the steps that found the data, in order, naming each endpoint or page and what it returns.
     - `checks`: what you compared against the portal itself, such as "the portal lists 12 open bids; the crawl
       found 12" or "due dates match the times the page shows".

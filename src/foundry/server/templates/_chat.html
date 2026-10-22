@@ -1,3 +1,4 @@
+<div class="c-split">
 {% if run.has_agent %}
 <section class="c-chat" id="chat-sync">
   <ol class="c-lines" id="chat">
@@ -7,8 +8,8 @@
   </ol>
   {% set doing = (events | rejectattr("in_chat") | list | last) if events else none %}
   {% include "_ticker.html" %}
+  <section id="help-box">{% include "_help_box.html" %}</section>
   <div class="c-dock">
-    <section id="help-box">{% include "_help_box.html" %}</section>
     {% if run.has_agent %}
     <form class="c-composer" id="composer" method="post" action="/runs/{{ run.id }}/messages"
           hx-post="/runs/{{ run.id }}/messages" hx-include="#after" hx-swap="none" hx-sync="#chat-sync:queue all"
@@ -30,12 +31,13 @@
 </section>
 {% endif %}
 
-<details class="card">
-  <summary>The agent's work log</summary>
+<aside class="c-log" aria-label="The agent's work log">
+  <header><span>Work log</span><span class="muted">every command, edit and tool call</span></header>
   <ol class="timeline" id="timeline">
     {% for event in events %}{% include "_event.html" %}{% endfor %}
   </ol>
-</details>
+</aside>
+</div>
 <input type="hidden" id="after" name="after" value="{{ events[-1].id if events else 0 }}">
 <script>
   (() => {
@@ -47,7 +49,13 @@
       }
     }).observe(list, { childList: true });
     if (chat) dedupe(chat);
-    dedupe(document.getElementById("timeline"));
+    const log = document.getElementById("timeline");
+    dedupe(log);
+    log.scrollTop = log.scrollHeight;
+    let following = true;
+    log.addEventListener("scroll", () => { following = log.scrollTop + log.clientHeight >= log.scrollHeight - 40; });
+    new MutationObserver(() => { if (following) log.scrollTop = log.scrollHeight; }).observe(log, { childList: true });
+    log.addEventListener("click", (event) => event.target.closest(".event")?.classList.toggle("open"));
     if (chat) new MutationObserver(() => {
       document.getElementById("chat-empty")?.remove();
       if (nearBottom()) window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });

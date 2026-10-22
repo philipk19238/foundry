@@ -16,6 +16,10 @@ pass before you submit; making it pass is your job.
 
 ## How requests are sent
 
+Requests go at the spider's `DOWNLOAD_DELAY` and `CONCURRENT_REQUESTS_PER_DOMAIN` (or the portal's `delay` in
+`buyer.toml`, which wins, with one request at a time). When the portal answers with a rate limit, the crawl slows
+that site down, waits what it asks, and sends the request again; the output says how far it had to slow.
+
 Each request runs as a `fetch` from a page on the portal, so responses are what plain HTTP returns and the spider
 needs no browser code. `fetch` drops the `Cookie`, `User-Agent` and `Referer` headers a spider sets; the page sends
 its own, with the browser's cookies. Other headers (`Accept`, a tenant id, a bearer token) go through. A firewall
@@ -26,7 +30,8 @@ check (AWS WAF, Cloudflare, a reCAPTCHA browser check) stops the request unless 
 
 | What you see | What it means | Fix |
 |---|---|---|
-| `(429)`, `(202)` with an empty body, or bodies that stop being JSON partway | the spider is faster than the portal allows | pace the portal in `buyer.toml` (`delay = 2` on its `[[portals]]` entry); retry them with `RETRY_HTTP_CODES` including 429 and 202 |
+| `rate-limited N times and slowed to S s` | the portal answered 429 or `Retry-After`; the crawl slowed itself and retried | set `delay = S` on the portal's `[[portals]]` entry in `buyer.toml`, so the crawl starts at the pace that works; save it with `remember` |
+| `(429)`, `(202)` with an empty body, or bodies that stop being JSON partway | the portal limits rate without saying so | set a `delay` in `buyer.toml` (start at 2) and rerun until it's gone |
 | `N stopped by bot checks` | a check stood in front of those requests | the `challenges` skill: `solve`, then `solve = True` and pacing |
 | `refused with 401/403` on the first request | a header the portal's own page sends is missing, or the portal really needs a sign-in | compare with the page's request in your recording; see `sign-in` |
 | `(400)` or `(404)` on some records | the spider builds a URL the portal doesn't have for them (a closed bid, a missing tab) | skip what the portal doesn't have, without failing the listing |

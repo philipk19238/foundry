@@ -20,9 +20,11 @@ and say so in `gaps`.
 
 ## What a crawl signs in with
 
-- **The browser's session.** After you sign in, foundry keeps the browser's cookies, and every live crawl's browser
-  starts with them. If the portal also needs a header (a bearer token, a CSRF header), find it in your recording and
-  name it in your summary.
+- **The browser's session.** After every run and every scheduled crawl, foundry keeps everything the browser held:
+  cookies on every domain, each origin's localStorage and sessionStorage, and its user agent. Every live crawl's
+  browser starts with all of it, so a sign-in or a passed check carries over. A spider reads a stored token with
+  `self.session.stored("<key>")` (None on replay, so parse without it). `needs` (the `find-the-api` skill) tells
+  you which cookies and headers an endpoint actually needs and where they come from.
 - **Saved credentials.** Any other secret (an API key, a token you generated, a second account) goes in
   `save_credential`; the spider reads it as `self.credentials["<name>"]`. `credentials` lists what is saved.
 - **A CSRF token that changes on every page** is not a credential: read it from the page in the spider.

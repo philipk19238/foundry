@@ -78,6 +78,8 @@ class Crawl(BaseModel, frozen=True):
     errors: tuple[str, ...] = ()
     refused: str = ""
     challenged: int = 0
+    rate_limited: int = 0
+    slowed_to: float = 0
     signed_in: bool = True
     browser: bool = False
 
@@ -92,6 +94,8 @@ class Crawl(BaseModel, frozen=True):
             errors=stats.examples,
             refused=stats.refused,
             challenged=stats.challenged,
+            rate_limited=stats.rate_limited,
+            slowed_to=stats.slowed_to,
             signed_in=job.session is not None,
             browser=job.browser is not None,
         )

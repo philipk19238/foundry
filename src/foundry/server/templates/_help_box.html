@@ -2,7 +2,10 @@
 {% if request_.status == "claimed" and request_.claimed_by == user.id %}
 <div class="c-drive">
   <div class="c-drive-bar"><span class="c-pulse" aria-hidden="true"></span><b>You're driving.</b> The agent waits until you hand it back.
-    <a href="{{ request_.live_view_url }}" target="_blank" rel="noopener">Open in its own tab ↗</a></div>
+    <span class="c-drive-open">
+      <button type="button" class="btn quiet small" onclick="document.getElementById('live-{{ request_.id }}').requestFullscreen()">Full screen</button>
+      <a class="btn quiet small" href="{{ request_.live_view_url }}" target="_blank" rel="noopener">Open in a new tab</a>
+    </span></div>
   <iframe id="live-{{ request_.id }}" src="{{ request_.live_view_url }}" title="The agent's browser" allow="clipboard-read; clipboard-write"></iframe>
   <form class="c-drive-done" method="post" action="/help/{{ request_.id }}/done">
     <input name="note" placeholder="A note for the agent (optional): what you did, what to do next">

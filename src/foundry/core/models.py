@@ -72,12 +72,25 @@ class Cookie(BaseModel, frozen=True):
 
 
 class Session(BaseModel, frozen=True):
-    """What a scraper sends to look signed in: the portal's cookies, plus any headers it needs (a bearer token, a
-    CSRF header). Captured from the agent's browser after it signs in."""
+    """Everything a portal's browser held, kept so the next crawl starts where the last one left off: its cookies
+    (on every domain), each origin's localStorage and sessionStorage (where many portals keep an API token), the
+    browser's user agent, and any headers named for it. Captured from the agent's browser after each run and from a
+    scheduled crawl's browser after each crawl; every live crawl's browser starts with all of it."""
 
     cookies: tuple[Cookie, ...] = ()
     headers: dict[str, str] = {}
+    local_storage: dict[str, dict[str, str]] = {}
+    session_storage: dict[str, dict[str, str]] = {}
+    user_agent: str = ""
     captured_at: dt.datetime
+
+    def stored(self, key: str) -> str | None:
+        """A value the portal's pages kept in localStorage or sessionStorage under `key`, from any origin: how a
+        spider reads a token the portal's own JavaScript would send as a header."""
+        for kept in (*self.local_storage.values(), *self.session_storage.values()):
+            if key in kept:
+                return kept[key]
+        return None
 
     @property
     def cookie_header(self) -> str:
@@ -162,6 +175,8 @@ class CrawlStats(BaseModel, frozen=True):
     logged_out: bool = False
     refused: str = ""
     challenged: int = 0
+    rate_limited: int = 0
+    slowed_to: float = 0
     crashes: int = 0
     examples: tuple[str, ...] = ()
 

@@ -192,7 +192,8 @@ class Downloads:
 
     async def fetch(self, listing: Listing, session: Session | None) -> tuple[StoredFile, ...]:
         signed_in = {**session.headers, "Cookie": session.cookie_header} if session is not None else {}
-        headers = {**BROWSER_HEADERS, "Referer": listing.url, **signed_in}
+        agent = {"User-Agent": session.user_agent} if session is not None and session.user_agent else {}
+        headers = {**BROWSER_HEADERS, **agent, "Referer": listing.url, **signed_in}
         stored = []
         for link in listing.files:
             try:

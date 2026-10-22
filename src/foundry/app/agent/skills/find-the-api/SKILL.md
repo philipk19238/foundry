@@ -39,8 +39,22 @@ documents and download requests are usually obvious from their paths. For a cand
 grep -F '<path part>' traffic.jsonl | head -1 | "$FOUNDRY_PYTHON" -m json.tool
 ```
 
-Look at its request headers too: a portal API often needs a tenant or company id header, an `Accept` type, or a
-token the page read from an earlier response.
+## What each request really needs
+
+Don't copy every header and cookie the browser sent. Find the ones that matter:
+
+```bash
+"$FOUNDRY_PYTHON" -m foundry.core needs traffic.jsonl "<url part>" --browser "$FOUNDRY_BROWSER"
+```
+
+It sends the latest matching request again from the page it came from, then without each header and each cookie
+of its site in turn, and lists the ones whose absence changes the answer, with where each came from: the response
+that set a cookie, the localStorage key a header's value is kept under, or the earlier response it first appeared in.
+On PlanetBids it says `bid-details` needs only the `company-id` header, and no cookie.
+
+Put exactly those in the spider: fixed headers as constants built from `self.tenant`, a token read from an earlier
+response in the callback that receives it, and a token the portal's scripts keep in storage with
+`self.session.stored("<key>")`. Cookies the browser holds are sent for you. Name the needs in `submit`'s `access`.
 
 ## Pick how the scraper reads the portal
 
