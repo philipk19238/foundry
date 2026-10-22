@@ -148,14 +148,15 @@ class Imports:
     imports every open pull request; `register` imports one at once."""
 
     def __init__(
-        self, pulls: GitHubPulls, mirror: Mirror, catalog: Catalog, runs: Runs, leases: Leases, versions: Versions,
-        healths: Healths,
+        self, pulls: GitHubPulls, mirror: Mirror, catalog: Catalog, runs: Runs, leases: Leases, queue: Queue,
+        versions: Versions, healths: Healths,
     ) -> None:  # fmt: skip
         self._pulls = pulls
         self._mirror = mirror
         self._catalog = catalog
         self._runs = runs
         self._leases = leases
+        self._queue = queue
         self._versions = versions
         self._healths = healths
 
@@ -204,4 +205,5 @@ class Imports:
             return version
 
         version = await self._leases.hold(source.id, run.id, propose)
+        await self._queue.wake(source.id)
         await self._runs.finish(run.id, RunStatus.SUCCEEDED, f"registered {pull.html_url} as version {version}")

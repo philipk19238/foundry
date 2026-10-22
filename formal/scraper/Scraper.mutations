@@ -1,0 +1,60 @@
+# Each mutation plants a bug someone could ship in a copy of Scraper.tla; its property must then fail.
+
+mutation lost wakeup: after deferring, the agent job never checks whether the source was let go meanwhile
+detects DeferredRuns
+cfg Live-PromptWake
+-     /\ IF Free THEN Wake(A, "wakeBusy") ELSE NoWake(A, "wakeBusy")
++     /\ NoWake(A, "wakeBusy")
+
+mutation review_pending no longer wakes jobs stranded on a source nothing holds
+detects DeferredRuns
+cfg Live-Deferred
+- Stranded == ScheduleWakes /\ WokeA /\ Free
++ Stranded == FALSE
+
+mutation an agent run that failed with unread messages is reopened too
+detects ReopensBounded
+cfg Verified
+-     /\ IF status[A] = "succeeded" /\ unread
++     /\ IF status[A] \in {"succeeded", "failed"} /\ unread
+
+mutation Standing.working returns ONBOARDING for a live source
+detects LiveStatus
+- Working(k) == IF k = "heal" THEN "healing" ELSE IF Live THEN st ELSE "onboarding"
++ Working(k) == IF k = "heal" THEN "healing" ELSE "onboarding"
+
+mutation the reaper fails deferred runs too
+detects DeferredRuns
+cfg Live-Deferred
+-     /\ status[r] \in {"queued", "running"} /\ pc[r] \in Gone
++     /\ status[r] \in {"queued", "running", "deferred"} /\ pc[r] \in Gone
+
+mutation an agent job that finds the source held is skipped instead of deferred
+detects AgentRuns
+cfg Live-Deferred
+-     /\ CASE r = A -> /\ status' = [status EXCEPT ![A] = "deferred"]
++     /\ CASE r = A -> /\ status' = [status EXCEPT ![A] = "skipped"]
+
+mutation a claim ignores a live lease
+detects OneLeased
+cfg Verified
+-     /\ pc[r] = "claim" /\ Free
++     /\ pc[r] = "claim"
+
+mutation an agent run that ended well with unread messages is not reopened
+detects MessagesRead
+cfg Live-Messages
+-     /\ IF status[A] = "succeeded" /\ unread
++     /\ IF FALSE
+
+mutation a merged pull request is closed, not registered
+detects MergedRegistered
+cfg Live-Merged
+-           THEN /\ vstate' = [vstate EXCEPT ![i] = "merged"] /\ current' = i
++           THEN /\ vstate' = [vstate EXCEPT ![i] = "closed"] /\ UNCHANGED current
+
+mutation a repair that proposed a version leaves a live source HEALING
+detects KeepsCrawling
+cfg Live-Crawled
+-     /\ st' = IF Live THEN "ready" ELSE "in_review"
++     /\ st' = IF Live THEN st ELSE "in_review"

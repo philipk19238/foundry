@@ -8,6 +8,13 @@ The pure rules of the foundry catalog, transcribed from the Python:
 * `classify`    foundry/catalog/models.py `Change`: unchanged, amendment, or new.
 * `verdict`     foundry/health/models.py `Crawl.verdict`.
 * `afterCrawl`  foundry/health/models.py `Health.after`.
+* `stageOf`     foundry/app/progress/models.py `Stage.of`, called by `Progress.of` (a scraper's page) and
+  foundry/app/progress/progress.py `Tracker.stages` (the home page).
+* `Standing.working` / `Standing.settled`  foundry/app/scrapers/models.py, called from foundry/app/app.py
+  `App._build` and `App._review`.
+* `opportunities`  foundry/app/catalog/store.py `_RANKED` joined on `rank == 1` in `_OPPORTUNITIES`.
+
+stage_vectors.txt is the `#eval` output of section 10, for a pytest against `Stage.of` and `Standing`.
 
 SHA-256 is outside the model: ids are equal exactly when the encoded keys are equal, up to a SHA-256 collision.
 -/
@@ -536,5 +543,365 @@ theorem id_and_title_anchors_differ (a b : Listing) (ha : Fits (opportunityKey a
 #print axioms notice_same_iff
 #print axioms ingestAll_idempotent
 #print axioms heals_bounded
+
+/-! ## 7. Stage: where a scraper stands, one rule for the home page and the scraper's page -/
+
+/-- foundry/app/db/models/catalog.py `SourceStatus`. -/
+inductive SourceStatus
+  | new
+  | onboarding
+  | ready
+  | relogin
+  | healing
+  | inReview
+  | needsHuman
+  deriving DecidableEq, Repr
+
+/-- foundry/app/progress/models.py `Stage`. -/
+inductive Stage
+  | building
+  | waiting
+  | review
+  | live
+  | stopped
+  deriving DecidableEq, Repr
+
+/-- foundry/app/progress/models.py `Stage.of`: a question waiting beats an agent working, which beats a version in
+review; only a READY source is live. -/
+def stageOf (status : SourceStatus) (working waiting reviewing : Bool) : Stage :=
+  if waiting then .waiting
+  else if working then .building
+  else if reviewing then .review
+  else if status = .ready then .live
+  else .stopped
+
+/-- foundry/app/progress/models.py `Progress.of`, the scraper's own page: the last agent run is active, that run has
+a live question, the newest open version is proposed. -/
+def pageStage (status : SourceStatus) (agentActive questionLive newestProposed : Bool) : Stage :=
+  stageOf status agentActive questionLive newestProposed
+
+/-- foundry/app/progress/progress.py `Tracker.stages`, the home page: the source is in `working_sources`,
+`waiting_sources`, `reviewing_sources`. -/
+def homeStage (status : SourceStatus) (inWorking inWaiting inReviewing : Bool) : Stage :=
+  stageOf status inWorking inWaiting inReviewing
+
+/-- A question waiting wins over everything. -/
+theorem stage_waiting_first (s : SourceStatus) (wk rv : Bool) : stageOf s wk true rv = .waiting := by
+  simp [stageOf]
+
+/-- With no question, an agent working wins over a version in review and over the status. -/
+theorem stage_working_second (s : SourceStatus) (rv : Bool) : stageOf s true false rv = .building := by
+  simp [stageOf]
+
+/-- With no question and no agent, a version in review wins over the status. -/
+theorem stage_review_third (s : SourceStatus) : stageOf s false false true = .review := by
+  simp [stageOf]
+
+/-- Live exactly when nothing is under way and the schedule crawls the source. -/
+theorem stage_live_iff (s : SourceStatus) (wk wt rv : Bool) :
+    stageOf s wk wt rv = .live ↔ wt = false ∧ wk = false ∧ rv = false ∧ s = .ready := by
+  cases wk <;> cases wt <;> cases rv <;> cases s <;> simp [stageOf]
+
+/-- Stopped exactly when nothing is under way and the source is not READY. -/
+theorem stage_stopped_iff (s : SourceStatus) (wk wt rv : Bool) :
+    stageOf s wk wt rv = .stopped ↔ wt = false ∧ wk = false ∧ rv = false ∧ s ≠ .ready := by
+  cases wk <;> cases wt <;> cases rv <;> cases s <;> simp [stageOf]
+
+/-- Every stage is shown for some input (the function is total by construction: every branch returns). -/
+theorem stage_reachable (st : Stage) : ∃ s wk wt rv, stageOf s wk wt rv = st := by
+  cases st
+  · exact ⟨.new, true, false, false, rfl⟩
+  · exact ⟨.new, false, true, false, rfl⟩
+  · exact ⟨.new, false, false, true, rfl⟩
+  · exact ⟨.ready, false, false, false, rfl⟩
+  · exact ⟨.new, false, false, false, rfl⟩
+
+/-- The home page and the scraper's page compute a stage with the same rule, in the same argument order. -/
+theorem home_agrees_with_page (s : SourceStatus) (wk wt rv : Bool) : homeStage s wk wt rv = pageStage s wk wt rv := by
+  rfl
+
+/-! ## 8. Standing: a source's status while an agent works on it, and after the job ends -/
+
+/-- foundry/app/db/models/runs.py `RunKind`, the kinds a `Standing` is asked about: the agent jobs `App._build`
+runs (foundry/app/app.py), and the review `App._review` settles after a pull request closes. -/
+inductive JobKind
+  | onboard
+  | heal
+  | relogin
+  | review
+  deriving DecidableEq, Repr
+
+/-- foundry/app/scrapers/models.py `Standing`: whether the source has a merged version, and one in review. -/
+structure Standing where
+  live : Bool
+  proposed : Bool
+  deriving DecidableEq, Repr
+
+/-- foundry/app/scrapers/models.py `Standing.working`; `none` leaves the status as it is. -/
+def Standing.working (st : Standing) (k : JobKind) : Option SourceStatus :=
+  if k = .heal then some .healing
+  else if st.live then none
+  else some .onboarding
+
+/-- foundry/app/scrapers/models.py `Standing.settled`: the status after a job that proposed nothing. -/
+def Standing.settled (st : Standing) (k : JobKind) (rejected : Bool) : SourceStatus :=
+  if rejected = true ∧ k = .heal then .needsHuman
+  else if st.live then .ready
+  else if st.proposed then .inReview
+  else .needsHuman
+
+/-- The first draft: every non-heal job marks the source onboarding. -/
+def naiveWorking (_st : Standing) (k : JobKind) : Option SourceStatus :=
+  if k = .heal then some .healing else some .onboarding
+
+/-- An agent job never marks a live source ONBOARDING: it is left as it is, unless the job is a heal. -/
+theorem working_keeps_live (st : Standing) (k : JobKind) (h : st.live = true) :
+    st.working k = if k = .heal then some .healing else none := by
+  cases k <;> simp [Standing.working, h]
+
+theorem working_never_onboards_live (st : Standing) (k : JobKind) (h : st.live = true) :
+    st.working k ≠ some .onboarding := by
+  cases k <;> simp [Standing.working, h]
+
+/-- Recall check: under the draft, rewording a live scraper takes it off the schedule. -/
+theorem naive_working_onboards_live : naiveWorking ⟨true, false⟩ .onboard = some .onboarding := by
+  decide
+
+/-- A live source goes back to READY after any job, except a rejected heal, which goes to a person. -/
+theorem settled_live (st : Standing) (k : JobKind) (r : Bool) (h : st.live = true) :
+    st.settled k r = if r = true ∧ k = .heal then .needsHuman else .ready := by
+  cases r <;> cases k <;> simp [Standing.settled, h]
+
+/-- A source with no live version and a version in review waits IN_REVIEW, unless a heal was rejected. -/
+theorem settled_in_review (st : Standing) (k : JobKind) (r : Bool) (hl : st.live = false) (hp : st.proposed = true)
+    (hr : ¬(r = true ∧ k = .heal)) : st.settled k r = .inReview := by
+  simp only [Standing.settled, hr, hl, hp, if_false]
+  simp
+
+/-- No job leaves a source looking busy after it ends. -/
+theorem settled_not_busy (st : Standing) (k : JobKind) (r : Bool) :
+    st.settled k r ≠ .onboarding ∧ st.settled k r ≠ .healing := by
+  obtain ⟨live, p⟩ := st
+  cases r <;> cases k <;> cases live <;> cases p <;> simp [Standing.settled]
+
+/-! ## 9. Opportunities: one row per opportunity, its newest notice -/
+
+/-- A row of foundry/app/db/models/catalog.py `Notice`, as `_RANKED` in foundry/app/catalog/store.py reads it:
+its opportunity_id, first_seen_at and notice_id. -/
+structure Notice where
+  opp : Nat
+  seen : Nat
+  id : Nat
+  deriving DecidableEq, Repr
+
+/-- `order_by=(first_seen_at.desc(), notice_id.desc())`: `a` is ordered before `b`. -/
+def Notice.before (a b : Notice) : Bool := decide (a.seen > b.seen ∨ (a.seen = b.seen ∧ a.id > b.id))
+
+/-- `row_number() over (partition_by=opportunity_id, order_by=...)`: one more than the rows of its opportunity
+ordered before it. With notice_id unique no two rows tie, so this is the row number. -/
+def rowNumber (ns : List Notice) (n : Notice) : Nat :=
+  (ns.filter fun m => m.opp == n.opp && m.before n).length + 1
+
+/-- `func.count().over(partition_by=opportunity_id)`, the `snapshots` column. -/
+def snapshots (ns : List Notice) (n : Notice) : Nat :=
+  (ns.filter fun m => m.opp == n.opp).length
+
+/-- `_OPPORTUNITIES`: the join on `rank == 1`. -/
+def opportunities (ns : List Notice) : List Notice :=
+  ns.filter fun n => rowNumber ns n == 1
+
+/-- notice_id is the primary key. -/
+def UniqueIds (ns : List Notice) : Prop := (ns.map (·.id)).Nodup
+
+/-- The first draft: ordered by first_seen_at alone. -/
+def naiveRowNumber (ns : List Notice) (n : Notice) : Nat :=
+  (ns.filter fun m => m.opp == n.opp && decide (m.seen > n.seen)).length + 1
+
+def naiveOpportunities (ns : List Notice) : List Notice :=
+  ns.filter fun n => naiveRowNumber ns n == 1
+
+theorem Notice.before_irrefl (n : Notice) : n.before n = false := by
+  simp [Notice.before]
+
+theorem Notice.before_trans {a b c : Notice} (h1 : a.before b = true) (h2 : b.before c = true) :
+    a.before c = true := by
+  simp [Notice.before] at *
+  omega
+
+/-- Neither ordered before the other: the same first_seen_at and notice_id. -/
+theorem Notice.same_of_unordered {a b : Notice} (h1 : a.before b = false) (h2 : b.before a = false) :
+    a.seen = b.seen ∧ a.id = b.id := by
+  simp [Notice.before] at *
+  omega
+
+theorem rowNumber_one_iff (ns : List Notice) (n : Notice) :
+    rowNumber ns n = 1 ↔ ∀ m ∈ ns, m.opp = n.opp → m.before n = false := by
+  simp [rowNumber, List.filter_eq_nil_iff]
+
+theorem exists_newest : ∀ (l : List Notice), l ≠ [] → ∃ n ∈ l, ∀ m ∈ l, m.before n = false
+  | [], h => absurd rfl h
+  | [x], _ => ⟨x, by simp, by simp [Notice.before_irrefl]⟩
+  | x :: y :: ys, _ => by
+    obtain ⟨n, hn, hmax⟩ := exists_newest (y :: ys) (by simp)
+    cases hb : x.before n
+    · exact ⟨n, List.mem_cons_of_mem _ hn, fun m hm => by
+        rcases List.mem_cons.mp hm with rfl | hm
+        · exact hb
+        · exact hmax m hm⟩
+    · refine ⟨x, List.mem_cons_self, fun m hm => ?_⟩
+      rcases List.mem_cons.mp hm with rfl | hm
+      · exact Notice.before_irrefl _
+      · cases hmx : m.before x
+        · rfl
+        · have := hmax m hm
+          rw [Notice.before_trans hmx hb] at this
+          exact this
+
+theorem eq_of_same_id (ns : List Notice) (h : UniqueIds ns) (a b : Notice) (ha : a ∈ ns) (hb : b ∈ ns)
+    (he : a.id = b.id) : a = b := by
+  induction ns with
+  | nil => simp at ha
+  | cons x xs ih =>
+    simp only [UniqueIds, List.map_cons, List.nodup_cons] at h
+    rcases List.mem_cons.mp ha with hax | hax
+    · rcases List.mem_cons.mp hb with hbx | hbx
+      · rw [hax, hbx]
+      · exact absurd (List.mem_map.mpr ⟨b, hbx, by rw [← he, hax]⟩ : x.id ∈ xs.map (·.id)) h.1
+    · rcases List.mem_cons.mp hb with hbx | hbx
+      · exact absurd (List.mem_map.mpr ⟨a, hax, by rw [he, hbx]⟩ : x.id ∈ xs.map (·.id)) h.1
+      · exact ih h.2 hax hbx
+
+theorem nodup_of_unique (ns : List Notice) (h : UniqueIds ns) : ns.Nodup := by
+  induction ns with
+  | nil => simp
+  | cons x xs ih =>
+    simp only [UniqueIds, List.map_cons, List.nodup_cons] at h
+    exact List.nodup_cons.mpr ⟨fun hx => h.1 (List.mem_map.mpr ⟨x, hx, rfl⟩), ih h.2⟩
+
+theorem length_one_of_all_eq : ∀ (l : List Notice) (n : Notice), l.Nodup → n ∈ l → (∀ x ∈ l, x = n) → l.length = 1
+  | [], _, _, hn, _ => absurd hn (by simp)
+  | [_], _, _, _, _ => rfl
+  | x :: y :: ys, n, hd, _, hall => by
+    have hx := hall x (by simp)
+    have hy := hall y (by simp)
+    rw [List.nodup_cons] at hd
+    exact absurd (by simp [hx, hy] : x ∈ y :: ys) hd.1
+
+/-- Every opportunity with a notice gets exactly one row. -/
+theorem opportunities_one_each (ns : List Notice) (h : UniqueIds ns) (o : Nat) (ho : ∃ n ∈ ns, n.opp = o) :
+    ((opportunities ns).filter fun n => n.opp == o).length = 1 := by
+  obtain ⟨n0, hn0, ho0⟩ := ho
+  have hne : (ns.filter fun m => m.opp == o) ≠ [] := by
+    intro he
+    rw [List.filter_eq_nil_iff] at he
+    exact he n0 hn0 (by simp [ho0])
+  obtain ⟨n, hnl, hmax⟩ := exists_newest _ hne
+  have hn : n ∈ ns := (List.mem_filter.mp hnl).1
+  have hno : n.opp = o := by simpa using (List.mem_filter.mp hnl).2
+  have hrow : rowNumber ns n = 1 :=
+    (rowNumber_one_iff ns n).mpr fun m hm hmo => hmax m (List.mem_filter.mpr ⟨hm, by simp [hmo, hno]⟩)
+  apply length_one_of_all_eq _ n
+  · exact ((nodup_of_unique ns h).filter _).filter _
+  · exact List.mem_filter.mpr ⟨List.mem_filter.mpr ⟨hn, by simp [hrow]⟩, by simp [hno]⟩
+  · intro x hx
+    obtain ⟨hx1, hx2⟩ := List.mem_filter.mp hx
+    obtain ⟨hxs, hxr⟩ := List.mem_filter.mp hx1
+    have hxo : x.opp = o := by simpa using hx2
+    have h1 : n.before x = false := (rowNumber_one_iff ns x).mp (by simpa using hxr) n hn (by rw [hno, hxo])
+    have h2 : x.before n = false := hmax x (List.mem_filter.mpr ⟨hxs, by simp [hxo]⟩)
+    exact eq_of_same_id ns h x n hxs hn (Notice.same_of_unordered h2 h1).2
+
+/-- Every row is a stored notice, so no opportunity appears that has none. -/
+theorem opportunities_stored (ns : List Notice) (n : Notice) (hn : n ∈ opportunities ns) : n ∈ ns := by
+  exact (List.mem_filter.mp hn).1
+
+/-- The row is the newest snapshot: every other notice of its opportunity was seen earlier, or at the same time
+with a smaller notice_id. -/
+theorem opportunities_newest (ns : List Notice) (h : UniqueIds ns) (n m : Notice) (hn : n ∈ opportunities ns)
+    (hm : m ∈ ns) (ho : m.opp = n.opp) (hne : m ≠ n) : m.seen < n.seen ∨ (m.seen = n.seen ∧ m.id < n.id) := by
+  obtain ⟨hns, hr⟩ := List.mem_filter.mp hn
+  have h1 : m.before n = false := (rowNumber_one_iff ns n).mp (by simpa using hr) m hm ho
+  have hid : m.id ≠ n.id := fun e => hne (eq_of_same_id ns h m n hm hns e)
+  simp [Notice.before] at h1
+  omega
+
+/-- The snapshots column counts every notice of the row's opportunity, the shown one included. -/
+theorem snapshots_counts (ns : List Notice) (n : Notice) (hn : n ∈ opportunities ns) :
+    snapshots ns n = (ns.filter fun m => m.opp == n.opp).length ∧ 1 ≤ snapshots ns n := by
+  refine ⟨rfl, List.length_pos_of_mem (List.mem_filter.mpr ⟨(List.mem_filter.mp hn).1, by simp⟩)⟩
+
+/-- Recall check: ordered by first_seen_at alone, two snapshots seen at the same time both get rank 1. -/
+theorem naive_tie_two_rows :
+    (naiveOpportunities [⟨1, 5, 10⟩, ⟨1, 5, 11⟩]).length = 2 ∧ (opportunities [⟨1, 5, 10⟩, ⟨1, 5, 11⟩]).length = 1 := by
+  decide
+
+/-! ## 10. Stage and Standing vectors, for a pytest against the Python -/
+
+def SourceStatus.py : SourceStatus → String
+  | .new => "new"
+  | .onboarding => "onboarding"
+  | .ready => "ready"
+  | .relogin => "relogin"
+  | .healing => "healing"
+  | .inReview => "in_review"
+  | .needsHuman => "needs_human"
+
+def Stage.py : Stage → String
+  | .building => "building"
+  | .waiting => "waiting"
+  | .review => "review"
+  | .live => "live"
+  | .stopped => "stopped"
+
+def JobKind.py : JobKind → String
+  | .onboard => "onboard"
+  | .heal => "heal"
+  | .relogin => "relogin"
+  | .review => "review"
+
+def flag (b : Bool) : String := if b then "1" else "0"
+
+def allStatuses : List SourceStatus := [.new, .onboarding, .ready, .relogin, .healing, .inReview, .needsHuman]
+def allStages : List Stage := [.building, .waiting, .review, .live, .stopped]
+def allKinds : List JobKind := [.onboard, .heal, .relogin, .review]
+def bools : List Bool := [false, true]
+
+def stageVectors : List String :=
+  allStatuses.flatMap fun s => bools.flatMap fun wk => bools.flatMap fun wt => bools.map fun rv =>
+    s!"stage {s.py} {flag wk} {flag wt} {flag rv} {(stageOf s wk wt rv).py}"
+
+def workingVectors : List String :=
+  allKinds.flatMap fun k => bools.map fun live =>
+    s!"working {k.py} {flag live} {((Standing.mk live false).working k).elim "none" SourceStatus.py}"
+
+def settledVectors : List String :=
+  allKinds.flatMap fun k => bools.flatMap fun r => bools.flatMap fun live => bools.map fun p =>
+    s!"settled {k.py} {flag r} {flag live} {flag p} {((Standing.mk live p).settled k r).py}"
+
+def vectorHeader : List String := [
+  "# Generated by #eval in FoundryRules.lean from stageOf, Standing.working and Standing.settled. Do not edit.",
+  "# One case per line, space-separated. Flags are 1 (true) or 0 (false); names are the Python enum values.",
+  "# stage <status> <working> <waiting> <reviewing> <stage>      Stage.of(status, working, waiting, reviewing)",
+  "# working <kind> <live> <status|none>                         Standing(live=live, proposed=False).working(kind)",
+  "# settled <kind> <rejected> <live> <proposed> <status>        Standing(live, proposed).settled(kind, rejected)"]
+
+-- Every stage appears among the vectors: the reach search behind `stage_reachable`.
+#guard allStages.all fun st => allStatuses.any fun s => bools.any fun wk => bools.any fun wt => bools.any fun rv =>
+  stageOf s wk wt rv == st
+
+-- `proposed` does not change `working`, so the vectors fix it at false; checked over every case here.
+#guard allKinds.all fun k => bools.all fun live =>
+  (Standing.mk live false).working k == (Standing.mk live true).working k
+
+#guard (opportunities [⟨1, 5, 10⟩, ⟨1, 5, 11⟩, ⟨1, 3, 12⟩, ⟨2, 1, 13⟩]) == [⟨1, 5, 11⟩, ⟨2, 1, 13⟩]
+#guard snapshots [⟨1, 5, 10⟩, ⟨1, 5, 11⟩, ⟨1, 3, 12⟩, ⟨2, 1, 13⟩] ⟨1, 5, 11⟩ == 3
+
+#eval IO.println (String.intercalate "\n" ((vectorHeader ++ stageVectors ++ workingVectors ++ settledVectors).map
+  ("STAGEVEC " ++ ·)))
+
+#print axioms stage_live_iff
+#print axioms settled_not_busy
+#print axioms opportunities_one_each
+#print axioms opportunities_newest
 
 end Foundry
