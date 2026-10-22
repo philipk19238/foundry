@@ -5,13 +5,18 @@ its site or platform. The stats keys here are what the crawl reports."""
 
 from collections.abc import Iterable, Iterator
 from types import ModuleType
+from typing import TYPE_CHECKING
 
 import scrapy
 from scrapy.http import Request, Response
 
 from foundry.core.models import FileLink, Listing, Session
 
+if TYPE_CHECKING:
+    from playwright.async_api import Page
+
 LOGGED_OUT = "foundry/logged_out"
+RENEWED = "foundry/renewed"
 REFUSED = "foundry/refused"
 CHALLENGED = "foundry/challenged"
 FILES_SAVED = "foundry/files_saved"
@@ -26,13 +31,19 @@ EXAMPLE = "foundry/example/"
 PLAIN = "foundry_plain"
 FILE = "foundry_file"
 STOPPING = object()  # the signal a crawl sends when told to stop, before Scrapy starts closing it
+RENEW = object()  # the signal for a fresh session when the portal dropped one; the stealth browser answers it
 
 
 class PortalSpider(scrapy.Spider):
     """The base of every scraper. A subclass sets `name` and `start_urls`, parses listing responses in `parse`
     (yielding detail requests with `callback=self.parse_detail`, and the next page), and yields one `Listing` per
-    opportunity from `parse_detail`. Override `logged_out` when the portal signals a lost session another way. The
-    signed-in session is sent with every request; `self.credentials` holds the portal's other saved secrets.
+    opportunity from `parse_detail`. The signed-in session is sent with every request; `self.credentials` holds the
+    portal's saved secrets, its account's `username` and `password` among them.
+
+    When a response says the session is gone (`logged_out`), a live crawl renews it and carries on: the stealth
+    browser forgets the portal's cookies and stored values and loads its page again, which is a new guest session,
+    and `sign_in` signs in on it for a portal with a login; then the request is sent again (`renewed`). A crawl
+    renews at most three times; after that it stops as logged out, and an agent signs in again.
 
     A platform spider (`platforms/<name>/spider.py`) serves many buyers: each buyer's `buyer.toml` names its `tenant`,
     which arrives as `self.tenant`.
@@ -45,6 +56,8 @@ class PortalSpider(scrapy.Spider):
     the best practice, and a hook for a portal that needs otherwise:
 
     - `file_request` and `file_problem`: how an attachment is downloaded, and what counts as having got it;
+    - `logged_out`, `sign_in` and `renewed`: how the portal says a session is gone, how to sign in again, and what to
+      send once it is back;
     - `custom_settings`: Scrapy's settings, such as `CONCURRENT_REQUESTS_PER_DOMAIN` for how many requests the
       portal takes at once (the pace between them is `delay` in `buyer.toml`, and `stall` there is how long a crawl
       may wait before it counts as stuck);
@@ -99,7 +112,21 @@ class PortalSpider(scrapy.Spider):
         raise NotImplementedError
 
     def logged_out(self, response: Response) -> bool:
+        """Whether a response says the session is gone. By default a 401 or 403, or a page whose URL says login.
+        Override it for a portal that signals it another way (a sign-in form at the same URL, an error code)."""
         return response.status in (401, 403) or "login" in response.url.lower()
+
+    async def sign_in(self, page: "Page") -> None:
+        """Signs in on the portal's page, in the stealth browser, while a lost session is renewed. By default
+        nothing: the page loaded again is a new guest session, which is all a public portal needs. Override it for a
+        portal with a login: fill its form from `self.credentials["username"]` and `["password"]`, and wait until
+        the page shows you are signed in."""
+
+    def renewed(self, request: Request) -> Request | None:
+        """What to send once a lost session is renewed, in place of `request`, which met the lost session: `request`
+        itself by default. Override it for a portal whose server kept state the new session lacks (a PeopleSoft
+        window, a search that must be opened first): return the request that rebuilds it, or None to drop this one."""
+        return request
 
 
 def spiders(module: ModuleType) -> Iterator[type[PortalSpider]]:

@@ -213,6 +213,7 @@ class CrawlStats(BaseModel, frozen=True):
     valid: int = 0
     invalid: int = 0
     logged_out: bool = False
+    renewed: int = 0
     refused: str = ""
     challenged: int = 0
     rate_limited: int = 0

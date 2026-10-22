@@ -18,7 +18,8 @@ improving underneath it.
 | Pace | the spider's `DOWNLOAD_DELAY`; on a 429, `Retry-After` or a firewall header, slow that site down, then ease back | `delay = S` in `buyer.toml` (seconds between requests, one at a time) |
 | How many at once | Scrapy's `CONCURRENT_REQUESTS_PER_DOMAIN` | `custom_settings = {"CONCURRENT_REQUESTS_PER_DOMAIN": 2}` on the spider |
 | Bot checks | counted, and the request dropped | `solve = True` on the spider, or `meta={"solve": True}` on the requests that meet one (`challenges`) |
-| A lost session | 401, 403 or a URL with "login" | override `logged_out(response)` |
+| Spotting a lost session | 401, 403 or a URL with "login" | override `logged_out(response)` (a sign-in form at the same URL, an error code in the page) |
+| Renewing a lost session | the browser forgets the portal's cookies and stored values and loads its page again, a new guest session; the request is sent again; at most 3 times a crawl, then it stops as logged out | override `async sign_in(self, page)` to sign in on that page with `self.credentials["username"]` and `["password"]`; override `renewed(request)` to send something else first when the server kept state the new session lacks (return None to drop the request) |
 | Saved session | cookies, localStorage, sessionStorage and the user agent, sent with every request | read a token with `self.session.stored("key")`; other secrets with `self.credentials["name"]` (`sign-in`) |
 | Downloading an attachment | a GET of the link with the listing as `Referer`: plain HTTP first, the browser if that fails | override `file_request(link, listing)`; `meta={"browser": True}` skips the plain try |
 | Whether a download is the file | not an error status, and not a web page unless the link is one | override `file_problem(link, response)`, returning why it isn't, or None |
@@ -57,4 +58,18 @@ class Spider(PortalSpider):
         if b"File not found" in response.body[:2000]:
             return "the portal says the file is gone"
         return super().file_problem(link, response)
+
+    def logged_out(self, response):
+        # A timed-out session comes back as the sign-in page, with a 200.
+        return b'id="signin-form"' in response.body[:5000] or super().logged_out(response)
+
+    async def sign_in(self, page):
+        # Supplier login; the guest view doesn't list attachments.
+        await page.fill("#username", self.credentials["username"])
+        await page.fill("#password", self.credentials["password"])
+        await page.click("button[type=submit]")
+        await page.wait_for_selector("text=Sign out")
 ```
+
+A portal whose server keeps per-session state (PeopleSoft windows, a search opened first) rebuilds it in
+`renewed`: return the request that opens the search again, and carry on from the events still queued.

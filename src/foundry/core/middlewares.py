@@ -1,9 +1,10 @@
-"""The kit's middlewares: the portal session on every request, requests sent from the stealth browser, replayed
-fixtures, errors counted instead of crashing the crawl, and start requests sent again when a crawl carries on.
-`foundry.core.bronze` keeps everything the portal sent."""
+"""The kit's middlewares: requests sent from the stealth browser, replayed fixtures, errors counted instead of
+crashing the crawl, and start requests sent again when a crawl carries on. `foundry.core.session` sends the portal's
+session and renews it, and `foundry.core.bronze` keeps everything the portal sent."""
 
 import asyncio
 import base64
+import datetime as dt
 import json
 from collections.abc import AsyncIterator, Iterable
 from typing import TypedDict
@@ -20,7 +21,7 @@ from scrapy.responsetypes import responsetypes
 from scrapy.statscollectors import StatsCollector
 
 from foundry.core import challenges, pace
-from foundry.core.models import Fixture, Session
+from foundry.core.models import Cookie, Fixture, Session
 from foundry.core.pace import Pace
 from foundry.core.spider import (
     CHALLENGED,
@@ -28,9 +29,8 @@ from foundry.core.spider import (
     EXAMPLE,
     FILE,
     INVALID,
-    LOGGED_OUT,
     PLAIN,
-    REFUSED,
+    RENEW,
     STOPPING,
     UNMATCHED,
     PortalSpider,
@@ -41,40 +41,6 @@ PAGE_SLACK = 10.0
 BLANK_PAGE = "<!doctype html><title>foundry</title>"
 TEXT = ("json", "text", "html", "xml", "javascript", "x-www-form-urlencoded")
 LATENCY = "download_latency"
-
-
-class SessionMiddleware:
-    """Sends the portal's signed-in session with every request, and stops the crawl as logged out the first time a
-    response says the session is gone."""
-
-    def __init__(self, session: Session | None, crawler: Crawler) -> None:
-        self._session = session
-        self._crawler = crawler
-
-    @classmethod
-    def from_crawler(cls, crawler: Crawler) -> "SessionMiddleware":
-        raw = crawler.settings.get("FOUNDRY_SESSION")
-        return cls(Session.model_validate_json(raw) if raw else None, crawler)
-
-    def process_request(self, request: Request) -> None:
-        if self._session is None:
-            return
-        for key, value in self._session.headers.items():
-            request.headers.setdefault(key, value)
-        if self._session.cookies:
-            request.headers.setdefault("Cookie", self._session.cookie_header)
-
-    def process_response(self, request: Request, response: Response) -> Response:
-        """An attachment refused (an expired link, a file host's 403) is a failed download, never a lost session."""
-        spider = self._crawler.spider
-        if request.meta.get(FILE):
-            return response
-        if isinstance(spider, PortalSpider) and spider.logged_out(response) and self._crawler.stats is not None:
-            self._crawler.stats.set_value(LOGGED_OUT, True)
-            if self._crawler.stats.get_value(REFUSED) is None:
-                self._crawler.stats.set_value(REFUSED, f"{response.status} at {response.url}")
-            raise IgnoreRequest(f"logged out at {response.url}")
-        return response
 
 
 FETCH = """async ({url, method, headers, body, timeout}) => {
@@ -91,6 +57,7 @@ DROPPED = {"content-encoding", "content-length", "transfer-encoding"}
 SOLVE_TRIES = 3
 RATE_TRIES = 5
 RESTORE = """(() => {
+  if (sessionStorage.getItem(RENEWED_KEY)) return;
   const kept = KEPT;
   for (const [name, store] of [["local", localStorage], ["session", sessionStorage]]) {
     for (const [key, value] of Object.entries(kept[name][location.origin] || {})) {
@@ -98,6 +65,8 @@ RESTORE = """(() => {
     }
   }
 })();"""
+FORGET = """(key) => { localStorage.clear(); sessionStorage.clear(); sessionStorage.setItem(key, "1"); }"""
+RENEWED_KEY = "foundry-renewed"
 CHALLENGES_KEPT = 5
 SOLVE_SECONDS = 90.0
 SOLVED_FOR = 5.0
@@ -161,10 +130,30 @@ class BrowserMiddleware:
         )
         crawler.signals.connect(middleware.close, signal=signals.spider_closed)
         crawler.signals.connect(middleware.stopping, signal=STOPPING)
+        crawler.signals.connect(middleware.renew, signal=RENEW)
         return middleware
 
     def stopping(self) -> None:
         self._pace.hurry()
+
+    async def renew(self) -> Session:
+        """A fresh session for a lost one: the browser forgets every cookie, and the portal's stored values (which the
+        kept session no longer puts back), loads the portal's page again, a new guest session, where the spider's
+        `sign_in` signs in, and returns what it then holds, which plain-HTTP requests send from then on."""
+        context = (await self._connected()).contexts[0]
+        await context.clear_cookies()
+        page = await self._page(self._home)
+        await page.evaluate(FORGET, RENEWED_KEY)
+        await page.goto(self._home, wait_until="load")
+        if isinstance(spider := self._crawler.spider, PortalSpider):
+            await spider.sign_in(page)
+        kept = self._session
+        return Session(
+            cookies=tuple(Cookie.model_validate(cookie) for cookie in await context.cookies()),
+            headers=kept.headers if kept is not None else {},
+            user_agent=await page.evaluate("navigator.userAgent"),
+            captured_at=dt.datetime.now(dt.UTC),
+        )
 
     async def process_request(self, request: Request) -> Response | None:
         if request.meta.get(PLAIN):
@@ -269,7 +258,9 @@ class BrowserMiddleware:
                 if self._session.cookies:
                     await context.add_cookies([cookie.model_dump(by_alias=True) for cookie in self._session.cookies])
                 kept = {"local": self._session.local_storage, "session": self._session.session_storage}
-                await context.add_init_script(RESTORE.replace("KEPT", json.dumps(kept)))
+                await context.add_init_script(
+                    RESTORE.replace("KEPT", json.dumps(kept)).replace("RENEWED_KEY", json.dumps(RENEWED_KEY))
+                )
         return self._browser
 
     async def close(self) -> None:
