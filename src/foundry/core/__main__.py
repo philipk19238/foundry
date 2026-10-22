@@ -3,7 +3,9 @@
 - `python -m foundry.core crawl <job.json>`: one crawl, as Foundry runs it, in a process of its own.
 - `python -m foundry.core check <site key>...`: replay each site's fixtures through its spider; fails unless every
   site passes. With `--changed <base ref>` instead of keys, checks the sites the branch changed (the PR check); with
-  `--all`, every site (the check on `main`)."""
+  `--all`, every site (the check on `main`).
+- `python -m foundry.core live <site key> --browser <cdp url>`: one crawl of the live portal exactly as Foundry
+  runs it, from that stealth browser; fails unless it is healthy with listings."""
 
 import argparse
 import asyncio
@@ -20,7 +22,7 @@ from scrapy.settings import Settings
 from scrapy.utils.log import configure_logging
 
 from foundry.core import spider
-from foundry.core.models import CrawlJob, CrawlStats, Fixture
+from foundry.core.models import CrawlJob, CrawlStats, Fixture, Site
 from foundry.core.sites import Sites
 
 
@@ -70,32 +72,41 @@ async def crawl(job: CrawlJob) -> None:
 async def check(root: Path, keys: Iterable[str]) -> bool:
     passed = True
     for site in (Sites(root).get(key) for key in keys):
-        with tempfile.TemporaryDirectory(prefix="foundry-check-") as folder:
-            out = Path(folder)
-            fixtures = TypeAdapter(list[Fixture]).validate_json(site.fixtures.read_bytes())
-            job = CrawlJob(
-                spider=site.spider,
-                arguments=site.arguments,
-                listings=out / "listings.jsonl",
-                stats=out / "stats.json",
-                fixtures=fixtures,
-            )
-            (out / "job.json").write_text(job.model_dump_json())
-            subprocess.run(
-                [sys.executable, "-m", "foundry.core", "crawl", str(out / "job.json")], cwd=root, check=False
-            )
-            stats = (
-                CrawlStats.model_validate_json(job.stats.read_text()) if job.stats.exists() else CrawlStats(crashes=1)
-            )
-            listings = job.listings.read_text().splitlines() if job.listings.exists() else []
-        print(f"{'PASS' if stats.passed else 'FAIL'} {site.key}: {stats.valid} listings, {stats.invalid} invalid, "
-              f"{stats.crashes} crashes, logged out {stats.logged_out}")  # fmt: skip
-        for example in stats.examples:
-            print(f"    {example}")
-        for line in listings[:2]:
-            print(f"    {line[:300]}")
-        passed = passed and stats.passed
+        fixtures = TypeAdapter(list[Fixture]).validate_json(site.fixtures.read_bytes())
+        passed = await run(root, site, fixtures=fixtures) and passed
     return passed
+
+
+async def live(root: Path, key: str, browser: str) -> bool:
+    """One crawl of the live portal exactly as Foundry runs it, from the stealth browser at `browser`."""
+    site = Sites(root).get(key)
+    return await run(root, site, browser=browser, home=site.url)
+
+
+async def run(root: Path, site: Site, **job: object) -> bool:
+    """Crawls `site` in a process of its own, as Foundry does, and prints what it found; True if it passed."""
+    with tempfile.TemporaryDirectory(prefix="foundry-run-") as folder:
+        out = Path(folder)
+        crawl_job = CrawlJob.model_validate(
+            {"spider": site.spider, "arguments": site.arguments, "listings": out / "listings.jsonl",
+             "stats": out / "stats.json", **job}
+        )  # fmt: skip
+        (out / "job.json").write_text(crawl_job.model_dump_json())
+        subprocess.run([sys.executable, "-m", "foundry.core", "crawl", str(out / "job.json")], cwd=root, check=False)
+        stats = (
+            CrawlStats.model_validate_json(crawl_job.stats.read_text())
+            if crawl_job.stats.exists()
+            else CrawlStats(crashes=1)
+        )
+        listings = crawl_job.listings.read_text().splitlines() if crawl_job.listings.exists() else []
+    refused = f", refused with {stats.refused}" if stats.refused else ""
+    print(f"{'PASS' if stats.passed else 'FAIL'} {site.key}: {stats.valid} listings, {stats.invalid} invalid, "
+          f"{stats.crashes} crashes, logged out {stats.logged_out}{refused}")  # fmt: skip
+    for example in stats.examples:
+        print(f"    {example}")
+    for line in listings[:2]:
+        print(f"    {line[:300]}")
+    return stats.passed
 
 
 def changed(root: Path, base: str) -> list[str]:
@@ -111,6 +122,9 @@ def main() -> None:
     checking.add_argument("keys", nargs="*")
     checking.add_argument("--changed", metavar="BASE")
     checking.add_argument("--all", action="store_true")
+    crawling = commands.add_parser("live")
+    crawling.add_argument("key")
+    crawling.add_argument("--browser", required=True, metavar="CDP_URL")
     options = parser.parse_args()
     root = Path.cwd()
     match options.command:
@@ -127,6 +141,8 @@ def main() -> None:
                 print("No sites to check.")
                 return
             sys.exit(0 if asyncio.run(check(root, keys)) else 1)
+        case "live":
+            sys.exit(0 if asyncio.run(live(root, options.key, options.browser)) else 1)
 
 
 if __name__ == "__main__":
