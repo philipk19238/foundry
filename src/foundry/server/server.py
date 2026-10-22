@@ -1,5 +1,6 @@
 """The server's composition root: what the registry holds, the seeded user, the error translator, and the routes."""
 
+import asyncio
 import time
 from collections.abc import AsyncGenerator
 from pathlib import Path
@@ -20,6 +21,7 @@ from foundry.app.db.models.auth import Role
 from foundry.app.runs.runs import Queue
 from foundry.app.settings import settings
 from foundry.server import exceptions
+from foundry.server.changes.changes import Changes
 from foundry.server.routes import api, auth, files, mcp, pages, scrapers
 from foundry.worker import worker
 
@@ -47,8 +49,12 @@ async def lifespan(app: FastAPI, registry: svcs.Registry) -> AsyncGenerator[None
         async with svcs.Container(registry) as services:
             users = await services.aget(Users)
             await users.ensure(settings.seed_email, settings.seed_password.get_secret_value(), Role.ADMIN)
-    async with mcp.server.session_manager.run():
-        yield
+    publishing = asyncio.create_task(Changes(mcp.LISTENERS).publish(registry))
+    try:
+        async with mcp.server.session_manager.run():
+            yield
+    finally:
+        publishing.cancel()
 
 
 class TokenGate:

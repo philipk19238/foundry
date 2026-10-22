@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from foundry.app.db.models.catalog import Source
 from foundry.app.db.models.help import HelpRequest, HelpStatus
 from foundry.app.db.models.runs import Event, Run, RunKind, RunStatus
-from foundry.app.runs.models import ACTIVE, EventKind, Revived
+from foundry.app.runs.models import ACTIVE, EventKind, Revived, RunMark
 
 _HELD = and_(
     Source.id == bindparam("source"),
@@ -135,6 +135,13 @@ _LAST_AGENT = (
 _LIVE_VIEW = update(Run).where(Run.id == bindparam("run")).values(live_view_url=bindparam("url"))
 _SET_STATUS = update(Run).where(Run.id == bindparam("run")).values(status=bindparam("state"))
 _ENDED = (RunStatus.SUCCEEDED, RunStatus.FAILED, RunStatus.SKIPPED)
+_MARKS = select(Run.id, Run.source_id, Run.status, Run.beat_at).where(
+    or_(Run.status.not_in(_ENDED), Run.finished_at > bindparam("since"))
+)
+_WRITTEN = (
+    select(Event.run_id, func.max(Event.id).label("last")).where(Event.id > bindparam("after")).group_by(Event.run_id)
+)
+_LAST_EVENT = select(func.coalesce(func.max(Event.id), 0))
 _REOPEN = (
     update(Run)
     .where(Run.id == bindparam("run"), Run.status.in_(_ENDED))
@@ -255,6 +262,21 @@ async def start(session: AsyncSession, run_id: uuid.UUID, attempt: int, at: dt.d
     """Starts a queued (or restarting) run's `attempt`; False when another dispatch already started it, or a newer
     attempt replaced it (formal/runs/crawls `FencedStart`)."""
     return await session.scalar(_START, {"run": run_id, "attempt": attempt, "at": at}) is not None
+
+
+async def marks(session: AsyncSession, since: dt.datetime) -> Sequence[RunMark]:
+    """Where every run that hasn't ended, or ended after `since`, has got to."""
+    rows = await session.execute(_MARKS, {"since": since})
+    return [RunMark.model_validate(row, from_attributes=True) for row in rows]
+
+
+async def written(session: AsyncSession, after: int) -> dict[uuid.UUID, int]:
+    """The runs with lines after event `after`, each with its newest line's id."""
+    return {row.run_id: row.last for row in await session.execute(_WRITTEN, {"after": after})}
+
+
+async def last_event(session: AsyncSession) -> int:
+    return await session.scalar(_LAST_EVENT) or 0
 
 
 async def set_live_view(session: AsyncSession, run_id: uuid.UUID, url: str | None) -> None:

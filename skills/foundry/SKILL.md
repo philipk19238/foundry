@@ -48,6 +48,30 @@ The agent job is `get_scraper(...).progress.agent`. Talk to it the way you would
    `after` cursor from each result. `read_run(..., scope="everything")` shows every command and tool call when you
    need to see what it actually did.
 
+### Listening instead of polling
+
+A client on the 2026-07-28 MCP protocol (the Python SDK's `Client` negotiates it; check
+`client.session.protocol_version`) can hear changes instead of calling `wait_for_run` in a loop. Each job and scraper is a
+resource:
+
+| Resource | What it is | Updated when |
+|---|---|---|
+| `foundry://runs/{run_id}/chat` | the job's chat, as `read_run` returns it | the job writes a line, or someone does |
+| `foundry://runs/{run_id}` | the job, as `get_run` returns it | its status changes; a scrape beats (every 5 s, with progress) |
+| `foundry://sources/{source_id}` | the scraper, as `get_scraper` returns it | any of its jobs changes status or beats |
+| `foundry://questions` | the open questions, as `list_questions` returns them | any job's status changes |
+
+```python
+async with client.listen(resource_subscriptions=[f"foundry://runs/{run_id}/chat", f"foundry://runs/{run_id}"]) as sub:
+    await client.call_tool("send_message", {"run_id": run_id, "text": "..."})
+    async for event in sub:                       # event.uri says which one changed
+        chat = await client.read_resource(event.uri)
+```
+
+An update carries no content: read the resource again. Read it once right after the listen opens, since nothing is
+replayed. A stream that drops ends the loop: listen again and read again. Updates arrive about a second after the
+change.
+
 Be specific in messages: name the portal page, what is missing, and what done looks like. The agent cannot see this
 conversation.
 
@@ -55,8 +79,8 @@ conversation.
 
 Agent jobs take 10 minutes to over an hour, and reviews wait on people. Don't hold a turn open for that.
 
-- **Inside a turn (up to about 5 minutes):** loop `wait_for_run(run_id, after, seconds=50)`, pass the cursor back,
-  and stop as soon as the status is `succeeded`, `failed` or `skipped`, or `waiting` is true.
+- **Inside a turn (up to about 5 minutes):** listen to the job (above), or loop `wait_for_run(run_id, after,
+  seconds=50)` and pass the cursor back. Stop as soon as the status is `succeeded`, `failed` or `skipped`, or `waiting` is true.
 - **Longer:** end the turn and wake yourself up on a schedule (`/loop`, or `ScheduleWakeup` in a dynamic loop). Pick
   the interval by what you are waiting for:
 
@@ -96,6 +120,8 @@ touches, and then it is reviewed exactly like an agent's.
 `list_opportunities(source_id?, words?, page?)` returns the newest version of each saved opportunity, 50 a page;
 `snapshots` counts how often the portal changed it. `get_file_link(notice_id, file_id)` gives a short-lived download
 link for an attachment.
+
+A refresh or test scrape that went quiet or failed carries on where it got to after `restart_scrape(run_id)`.
 
 ## Don't
 

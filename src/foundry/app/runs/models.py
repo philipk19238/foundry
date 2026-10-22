@@ -110,3 +110,12 @@ class Dispatcher(Protocol):
     async def redeploy(self, run_id: uuid.UUID) -> None:
         """Deploys the latest `main`, then carries the run on there."""
         ...
+
+
+class RunMark(BaseModel, frozen=True):
+    """Where a run has got to: a change in any field means something on it changed."""
+
+    id: uuid.UUID
+    source_id: uuid.UUID
+    status: RunStatus
+    beat_at: dt.datetime | None

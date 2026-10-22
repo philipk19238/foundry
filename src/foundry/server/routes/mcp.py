@@ -1,7 +1,9 @@
 """Foundry over MCP, at `/mcp`: what the UI does, for an agent. Send `Authorization: Bearer <token>` with an API token
 from the API tokens page; every tool acts as that token's person, with the same roles as the UI. Talking to a
 scraper's agent works as in its chat: `send_message` reaches it mid-task, answers a question it waits on, or reopens
-an ended job, and `wait_for_run` returns as soon as it writes back."""
+an ended job, and `wait_for_run` returns as soon as it writes back. A client on the 2026-07-28 protocol can instead
+read a job as a resource and `subscriptions/listen` to it: it hears when the job, its chat or the open questions
+change (`server/changes`)."""
 
 import asyncio
 import contextvars
@@ -31,6 +33,8 @@ from foundry.app.runs.models import RunView
 from foundry.app.runs.runs import Queue, RunHistory, Timeline
 from foundry.app.scrapers.scrapers import ScraperHistory
 from foundry.app.settings import settings
+from foundry.server.changes.changes import ListenerBus
+from foundry.server.changes.models import QUESTIONS
 from foundry.server.models import RunDetail, RunLines, ScraperSummary, SourceDetail
 
 WAIT_POLL = 0.5
@@ -38,16 +42,20 @@ P = ParamSpec("P")
 R = TypeVar("R")
 CONTAINER: contextvars.ContextVar[svcs.Container] = contextvars.ContextVar("foundry_mcp_container")
 Lines = Literal["chat", "everything"]
+LISTENERS = ListenerBus()
 
 server = MCPServer(
     "foundry",
+    subscriptions=LISTENERS,
     instructions=(
         "Foundry builds scrapers for procurement portals. Each scraper moves through stages: building (an agent "
         "job is writing it; talk to the agent with send_message), needs_you (the agent asked a question), "
         "ready_for_review (test it with test_scrape, read its pull request, then approve or send_message asking for "
         "changes), live (scraped every 6 hours; read its data with list_opportunities), and stopped. Agent jobs "
         "(build, repair, sign in) have an agent you can talk to; scrapes run code only. Follow a job with "
-        "wait_for_run and stop once its status is succeeded, failed or skipped."
+        "wait_for_run and stop once its status is succeeded, failed or skipped. Clients that can listen: read "
+        "foundry://runs/{run_id}/chat, then subscriptions/listen to it and to foundry://runs/{run_id}, and read "
+        "again on each update; foundry://questions changes when an agent asks or a question is answered."
     ),
 )
 
@@ -237,6 +245,40 @@ async def get_file_link(notice_id: str, file_id: str) -> str:
     opportunities, bucket = await services().aget(Opportunities, Bucket)
     file = await opportunities.file(notice_id, file_id)
     return file.url if file.sha256 is None else await bucket.link(file.sha256, file.name)
+
+
+@tool
+async def restart_scrape(run_id: uuid.UUID) -> RunDetail:
+    """Restarts a scrape (refresh or test scrape) that went quiet or failed. It carries on where it got to rather
+    than starting over."""
+    await admin()
+    runs, queue = await services().aget(RunHistory, Queue)
+    await queue.restart(await runs.run(run_id))
+    return await get_run(run_id)
+
+
+@server.resource("foundry://runs/{run_id}", mime_type="application/json")
+async def run_resource(run_id: str) -> RunDetail:
+    """A job, as get_run returns it."""
+    return await get_run(uuid.UUID(run_id))
+
+
+@server.resource("foundry://runs/{run_id}/chat", mime_type="application/json")
+async def chat_resource(run_id: str) -> RunLines:
+    """A job's chat from the start, as read_run returns it."""
+    return await lines(uuid.UUID(run_id), 0, "chat")
+
+
+@server.resource("foundry://sources/{source_id}", mime_type="application/json")
+async def source_resource(source_id: str) -> SourceDetail:
+    """A scraper, as get_scraper returns it."""
+    return await get_scraper(uuid.UUID(source_id))
+
+
+@server.resource(QUESTIONS, mime_type="application/json")
+async def questions_resource() -> list[HelpView]:
+    """The questions agents wait on, as list_questions returns them."""
+    return await list_questions()
 
 
 async def lines(run_id: uuid.UUID, after: int, scope: Lines) -> RunLines:
