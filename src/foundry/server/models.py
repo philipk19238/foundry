@@ -12,7 +12,7 @@ from foundry.app.progress.models import Progress, Stage, TrialView
 from foundry.app.progress.progress import Tracker
 from foundry.app.runs.models import EventView, RunView
 from foundry.app.runs.runs import Timeline
-from foundry.app.scrapers.models import ScraperView
+from foundry.app.scrapers.models.version import ScraperView
 from foundry.app.settings import Settings
 
 

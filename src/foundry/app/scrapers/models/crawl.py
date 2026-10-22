@@ -1,63 +1,18 @@
-import datetime as dt
+"""What a crawl saw and what it means for the source's health, and the seams a live crawl reports through."""
+
 import enum
 import uuid
 from pathlib import Path
 from typing import Protocol, assert_never
 
-from pydantic import BaseModel, ConfigDict, TypeAdapter
+from pydantic import BaseModel, TypeAdapter
 
 from foundry.app.catalog.models import IngestCounts
-from foundry.app.db.models.catalog import ScraperState, SourceStatus
-from foundry.app.db.models.runs import RunKind
+from foundry.app.db.models.catalog import SourceStatus
 from foundry.core.models import CrawlJob, CrawlProgress, CrawlStats, Fixture, Listing, SavedFile, Session
 
 MAX_HEALS = 3
 FIXTURES = TypeAdapter(list[Fixture])
-
-
-class ScraperVersion(BaseModel):
-    """A merged version of a source's spider: the `main` commit that merged it, and its site key."""
-
-    model_config = ConfigDict(from_attributes=True)
-
-    source_id: uuid.UUID
-    version: int
-    site: str
-    commit: str
-    created_at: dt.datetime
-
-
-class Proposal(BaseModel):
-    """A version still in review: the pull request a run opened for it."""
-
-    model_config = ConfigDict(from_attributes=True)
-
-    source_id: uuid.UUID
-    version: int
-    site: str
-    branch: str
-    pull: int
-
-
-class ScraperView(BaseModel):
-    """Any version of a source's spider, merged or not, and the run whose agent built it."""
-
-    model_config = ConfigDict(from_attributes=True)
-
-    source_id: uuid.UUID
-    version: int
-    site: str
-    state: ScraperState
-    branch: str
-    pull: int
-    commit: str | None
-    run_id: uuid.UUID
-    created_at: dt.datetime
-
-    @property
-    def ref(self) -> str:
-        """Where its code is: the merge commit once merged, else the tip of the agent's branch."""
-        return self.commit if self.commit is not None else f"refs/heads/{self.branch}"
 
 
 class Verdict(enum.StrEnum):
@@ -145,12 +100,19 @@ class CrawlReport(BaseModel, frozen=True):
     session: Session | None = None
     files: dict[str, SavedFile] = {}
 
+    def from_browser(self, session: Session, files: dict[str, SavedFile]) -> "CrawlReport":
+        """The report of a live crawl, with what its browser held at the end and the attachments it downloaded."""
+        return self.model_copy(update={"session": session, "files": files})
+
 
 class CrawlWatch(Protocol):
     """The run a live crawl belongs to, told how far the crawl has got every few seconds."""
 
     @property
     def run_id(self) -> uuid.UUID: ...
+
+    @property
+    def attempt(self) -> int: ...
 
     async def beat(self, progress: CrawlProgress) -> bool:
         """False once the crawl should stop: a person restarted it, or the run ended."""
@@ -159,7 +121,7 @@ class CrawlWatch(Protocol):
 
 class CrawlState(Protocol):
     """Where a live crawl keeps what must outlive its worker (the requests still to send, the listings so far, files
-    not yet uploaded), one folder per run, so the run's next attempt carries on there."""
+    not yet uploaded), one folder per run; each attempt works in a folder of its own inside it."""
 
     def folder(self, run_id: uuid.UUID) -> Path: ...
 
@@ -179,30 +141,3 @@ class RefreshReport(BaseModel, frozen=True):
             f"{self.crawl.verdict}: {self.crawl.valid} listings, {self.ingested.new} new, {self.ingested.amended} "
             f"amended, {self.ingested.unchanged} unchanged; source is {self.health.status}"
         )
-
-
-class Standing(BaseModel, frozen=True):
-    """Which versions a source has, which decides its status around an agent job (formal/foundry_rules
-    `Standing`). A source with a live version keeps running and crawling while an agent reworks it; a job that ends
-    without proposing anything puts the source back where its versions say."""
-
-    live: bool
-    proposed: bool
-
-    def working(self, kind: RunKind) -> SourceStatus | None:
-        """The status while the agent works; None leaves it as it is."""
-        if kind == RunKind.HEAL:
-            return SourceStatus.HEALING
-        return None if self.live else SourceStatus.ONBOARDING
-
-    def settled(self) -> SourceStatus:
-        """The status after a job that proposed nothing, or a pull request closed without merging."""
-        if self.live:
-            return SourceStatus.READY
-        if self.proposed:
-            return SourceStatus.IN_REVIEW
-        return SourceStatus.NEEDS_HUMAN
-
-    def rejected(self, kind: RunKind) -> SourceStatus:
-        """The status after a job whose work was rejected: a rejected repair leaves a broken scraper to a person."""
-        return SourceStatus.NEEDS_HUMAN if kind == RunKind.HEAL else self.settled()

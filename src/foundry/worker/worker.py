@@ -16,7 +16,7 @@ from foundry.app.db.models.runs import RunStatus
 from foundry.app.repo.repo import Mirror
 from foundry.app.runs.models import Dispatcher, EventKind
 from foundry.app.runs.runs import Runs, Timeline
-from foundry.app.scrapers.models import CrawlState
+from foundry.app.scrapers.models.crawl import CrawlState
 from foundry.app.settings import Settings, settings
 
 APP = "foundry"

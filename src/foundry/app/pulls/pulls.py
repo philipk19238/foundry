@@ -19,7 +19,8 @@ from foundry.app.repo.models import BRANCHES, Pull
 from foundry.app.repo.repo import Clones, Mirror
 from foundry.app.runs.models import EventKind, RunView
 from foundry.app.runs.runs import Leases, Queue, RunHistory, Runs, Timeline
-from foundry.app.scrapers.models import CrawlReport, ScraperView, Verdict
+from foundry.app.scrapers.models.crawl import CrawlReport, Verdict
+from foundry.app.scrapers.models.version import ScraperView
 from foundry.app.scrapers.scrapers import Crawls, Healths, Versions
 from foundry.app.settings import Settings
 from foundry.core.sites import Sites

@@ -69,6 +69,13 @@ class RunView(BaseModel):
         )  # fmt: skip
 
 
+class Revived(BaseModel, frozen=True):
+    """The crawls the reaper found quiet: queued again to carry on, or failed after their last attempt."""
+
+    queued: list[uuid.UUID]
+    failed: list[uuid.UUID]
+
+
 CHAT = (EventKind.MESSAGE, EventKind.PERSON, EventKind.ANSWER, EventKind.HELP, EventKind.NOTE)
 
 

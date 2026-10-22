@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from foundry.app.db.models.catalog import Source
 from foundry.app.db.models.help import HelpRequest, HelpStatus
 from foundry.app.db.models.runs import Event, Run, RunKind, RunStatus
-from foundry.app.runs.models import ACTIVE, EventKind
+from foundry.app.runs.models import ACTIVE, EventKind, Revived
 
 _HELD = and_(
     Source.id == bindparam("source"),
@@ -309,14 +309,12 @@ async def retry(session: AsyncSession, run_id: uuid.UUID, attempt: int, at: dt.d
     return await session.scalar(_RETRY, {"run": run_id, "attempt": attempt, "at": at}) is not None
 
 
-async def revive(
-    session: AsyncSession, before: dt.datetime, most: int, at: dt.datetime
-) -> tuple[list[uuid.UUID], list[uuid.UUID]]:
+async def revive(session: AsyncSession, before: dt.datetime, most: int, at: dt.datetime) -> Revived:
     """Crawls that haven't beaten since ``before``, their worker gone or stuck: queued again while they have
-    attempts left, failed after; the queued ones, then the failed ones."""
-    revived = list((await session.scalars(_REVIVE, {"before": before, "most": most, "now": at})).all())
-    given_up = list((await session.scalars(_GIVE_UP, {"before": before, "most": most, "now": at})).all())
-    return revived, given_up
+    attempts left, failed after."""
+    queued = list((await session.scalars(_REVIVE, {"before": before, "most": most, "now": at})).all())
+    failed = list((await session.scalars(_GIVE_UP, {"before": before, "most": most, "now": at})).all())
+    return Revived(queued=queued, failed=failed)
 
 
 async def defer(session: AsyncSession, run_id: uuid.UUID, why: str) -> None:

@@ -8,7 +8,7 @@ from pathlib import Path
 from foundry.app.catalog.models import ScrapedNotice
 from foundry.app.core.models import Key
 from foundry.app.db.models.catalog import SourceStatus
-from foundry.app.scrapers.models import Crawl, Health, Verdict
+from foundry.app.scrapers.models.crawl import Crawl, Health, Verdict
 from foundry.core.models import FileLink, Listing
 
 VECTORS = dict(

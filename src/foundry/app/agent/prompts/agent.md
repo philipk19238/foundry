@@ -13,7 +13,7 @@ clone. Read its `README.md` first.
 
 They hold the how-to and the helper commands. Open the one that fits before that part of the work:
 `environment` (start here), `learnings`, `find-the-api`, `fixtures`, `live-crawl`, `completeness`,
-`dates-and-timezones`, `attachments`, `challenges`, `sign-in`, `platform-spiders`, `changing-foundry`.
+`dates-and-timezones`, `attachments`, `challenges`, `sign-in`, `platform-spiders`, `kit-hooks`, `changing-foundry`.
 
 ## What earlier agents learned
 

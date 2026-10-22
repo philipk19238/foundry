@@ -8,7 +8,8 @@ from foundry.app.db.models.catalog import ScraperState, SourceStatus
 from foundry.app.db.models.runs import RunKind
 from foundry.app.help.models import HelpView
 from foundry.app.runs.models import RunView
-from foundry.app.scrapers.models import Crawl, ScraperView
+from foundry.app.scrapers.models.crawl import Crawl
+from foundry.app.scrapers.models.version import ScraperView
 from foundry.core.models import Listing
 
 

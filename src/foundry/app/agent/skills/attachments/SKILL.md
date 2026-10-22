@@ -11,10 +11,11 @@ must download the file itself, not a page about it.
 
 ## How the crawl downloads files
 
-The kit does it for every spider (`FilesPipeline`): each link of each good listing goes through the same stealth
-browser, session and pace as the pages, as `spider.file_request(link, listing)`, a GET with the listing as
-`Referer` by default. `spider.file_problem(link, response)` then decides whether the response is the file; by default
-an error status, or a web page for a link that isn't one, counts as a failed download.
+The kit does it for every spider (`FilesPipeline`): each link of each good listing is sent as
+`spider.file_request(link, listing)`, a GET with the listing as `Referer` by default. It goes as plain HTTP first,
+which is fast and costs no proxy traffic (file hosts are mostly plain CDNs), and from the stealth browser, with its
+session and pace, only when that didn't get the file. `spider.file_problem(link, response)` decides whether a
+response is the file; by default an error status, or a web page for a link that isn't one, counts as a failure.
 
 The live crawl (`live-crawl`) prints `N files downloaded, M failed`, and the first failures with their reason. That
 is the proof: every file downloaded, or each failure explained in `gaps`. For a quick look at one link:
@@ -34,7 +35,9 @@ The defaults are the best practice; override them in the spider when the portal 
   link point at what hands out the file.
 - **The portal serves files oddly** (a download page that is the file, a 200 with an error page in the body):
   override `file_problem` to say what a good download looks like there.
-- **Files need a bot check cleared:** `solve = True` covers file requests too (`file_request` passes it on).
+- **Files need the browser** (a bot check, cookies the browser earned): the plain try fails and the browser one
+  follows by itself; return `meta={"browser": True}` from `file_request` to skip the plain try, and `solve = True`
+  covers bot checks on file requests too.
 
 ## When it doesn't download
 

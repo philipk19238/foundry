@@ -3,7 +3,8 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field
 
-from foundry.app.scrapers.models import Crawl, ScraperVersion
+from foundry.app.scrapers.models.crawl import Crawl
+from foundry.app.scrapers.models.version import ScraperVersion
 
 PROMPTS = Path(__file__).parents[1] / "prompts"
 

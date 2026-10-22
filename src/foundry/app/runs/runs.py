@@ -199,28 +199,14 @@ class Runs:
         at = now()
         async with self._sessionmaker.begin() as session:
             reaped = await store.reap(session, at, at - LEASE)
-            revived, given_up = await store.revive(session, at - STALE, MOST_ATTEMPTS, at)
-        for run_id in [*reaped, *given_up]:
+            revived = await store.revive(session, at - STALE, MOST_ATTEMPTS, at)
+        for run_id in [*reaped, *revived.failed]:
             await self._timeline.log(run_id, models.EventKind.ERROR, "Lost its worker before finishing.")
-        for run_id in revived:
+        for run_id in revived.queued:
             await self._timeline.log(
                 run_id, models.EventKind.STATUS, "Stopped making progress; carrying on where it stopped."
             )
-        return revived
-
-    async def beat(self, run: models.RunView, progress: CrawlProgress) -> bool:
-        """Keeps a crawl's progress on its run; False once a person restarted it, or it ended."""
-        stats: dict[str, JsonValue] = {"progress": progress.model_dump(mode="json")}
-        async with self._sessionmaker.begin() as session:
-            return await store.beat(session, run.id, run.attempts, stats, now())
-
-    async def retry(self, run: models.RunView) -> bool:
-        """Queues the crawl's next attempt, which carries on where this one got to; False if it can't be retried."""
-        async with self._sessionmaker.begin() as session:
-            retried = await store.retry(session, run.id, run.attempts, now())
-        if retried:
-            await self._timeline.log(run.id, models.EventKind.STATUS, "Restarting; carrying on where the crawl got to.")
-        return retried
+        return revived.queued
 
     async def woken(self, source_id: uuid.UUID) -> list[uuid.UUID]:
         async with self._sessionmaker.begin() as session:
@@ -248,19 +234,49 @@ class Runs:
         await self._timeline.log(run_id, models.EventKind.STATUS, f"{status.capitalize()}: {summary}")
 
 
+class Attempts:
+    """A crawl run's attempts: the newest one beats with its progress as the crawl goes, and one that stopped is
+    queued again to carry on where it got to."""
+
+    def __init__(self, sessionmaker: Sessionmaker, timeline: Timeline) -> None:
+        self._sessionmaker = sessionmaker
+        self._timeline = timeline
+
+    async def beat(self, run: models.RunView, progress: CrawlProgress) -> bool:
+        """Keeps a crawl's progress on its run; False once a person restarted it, or it ended."""
+        stats: dict[str, JsonValue] = {"progress": progress.model_dump(mode="json")}
+        async with self._sessionmaker.begin() as session:
+            return await store.beat(session, run.id, run.attempts, stats, now())
+
+    async def retry(self, run: models.RunView) -> bool:
+        """Queues the crawl's next attempt, which carries on where this one got to; False if it can't be retried."""
+        async with self._sessionmaker.begin() as session:
+            retried = await store.retry(session, run.id, run.attempts, now())
+        if retried:
+            await self._timeline.log(run.id, models.EventKind.STATUS, "Restarting; carrying on where the crawl got to.")
+        return retried
+
+    def watch(self, run: models.RunView) -> "RunWatch":
+        return RunWatch(self, run)
+
+
 class RunWatch:
     """One attempt of a crawl run, beaten by the crawl as it goes."""
 
-    def __init__(self, runs: Runs, run: models.RunView) -> None:
-        self._runs = runs
+    def __init__(self, attempts: Attempts, run: models.RunView) -> None:
+        self._attempts = attempts
         self._run = run
 
     @property
     def run_id(self) -> uuid.UUID:
         return self._run.id
 
+    @property
+    def attempt(self) -> int:
+        return self._run.attempts
+
     async def beat(self, progress: CrawlProgress) -> bool:
-        return await self._runs.beat(self._run, progress)
+        return await self._attempts.beat(self._run, progress)
 
 
 class Pauses:
@@ -296,9 +312,10 @@ class Pauses:
 class Queue:
     """Where runs are asked for, by a person, the schedule or the healing loop, and handed to the dispatcher."""
 
-    def __init__(self, runs: Runs, pauses: Pauses, dispatcher: models.Dispatcher) -> None:
+    def __init__(self, runs: Runs, pauses: Pauses, attempts: Attempts, dispatcher: models.Dispatcher) -> None:
         self._runs = runs
         self._pauses = pauses
+        self._attempts = attempts
         self._dispatcher = dispatcher
 
     async def request(self, source_id: uuid.UUID, kind: RunKind, requested_by: uuid.UUID | None) -> models.RunView:
@@ -318,10 +335,17 @@ class Queue:
     async def restart(self, run: models.RunView) -> None:
         """A person restarting a crawl: its next attempt carries on where this one got to. A worker still beating
         sees the new attempt within seconds, stops, and dispatches it; a quiet or failed run is dispatched now."""
-        if not await self._runs.retry(run):
+        if not await self._attempts.retry(run):
             raise exceptions.CannotRestart(run.id)
         if run.quiet or run.status == RunStatus.FAILED:
             await self._dispatcher.dispatch(run.id)
+
+    async def retry(self, run: models.RunView) -> bool:
+        """Carries a stalled crawl on in its next attempt; False if it can't be retried."""
+        retried = await self._attempts.retry(run)
+        if retried:
+            await self._dispatcher.dispatch(run.id)
+        return retried
 
     async def revive(self) -> int:
         """Fails runs whose worker is gone and carries on the crawls that stopped beating."""

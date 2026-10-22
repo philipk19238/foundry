@@ -25,7 +25,7 @@ from foundry.app.learnings.models import NewLearning
 from foundry.app.pulls.pulls import Proposals
 from foundry.app.repo.client import GitHubPulls
 from foundry.app.repo.repo import Clones, Mirror
-from foundry.app.scrapers.models import CrawlReport
+from foundry.app.scrapers.models.crawl import CrawlReport
 from foundry.app.scrapers.scrapers import Crawls
 from foundry.app.settings import Settings
 

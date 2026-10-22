@@ -17,7 +17,9 @@ from foundry.app.core.models import Lease
 from foundry.app.db.db import Sessionmaker, now
 from foundry.app.db.models.catalog import SourceStatus
 from foundry.app.files.models import Bucket
-from foundry.app.scrapers import models, store
+from foundry.app.scrapers import store
+from foundry.app.scrapers.models.crawl import FIXTURES, Crawl, CrawlReport, CrawlState, CrawlWatch, Health, Verdict
+from foundry.app.scrapers.models.version import Proposal, ScraperVersion, ScraperView, Standing
 from foundry.core.models import Access, CrawlJob, CrawlProgress, CrawlStats, Listing, SavedFile, Site
 from foundry.core.sites import Sites
 
@@ -36,27 +38,27 @@ class Versions:
     def __init__(self, sessionmaker: Sessionmaker) -> None:
         self._sessionmaker = sessionmaker
 
-    async def current(self, source_id: uuid.UUID) -> models.ScraperVersion:
+    async def current(self, source_id: uuid.UUID) -> ScraperVersion:
         async with self._sessionmaker() as session:
             scraper = await store.current(session, source_id)
         if scraper is None:
             raise exceptions.NoScraper(source_id)
-        return models.ScraperVersion.model_validate(scraper)
+        return ScraperVersion.model_validate(scraper)
 
-    async def proposed(self, source_id: uuid.UUID) -> models.Proposal | None:
+    async def proposed(self, source_id: uuid.UUID) -> Proposal | None:
         async with self._sessionmaker() as session:
             scraper = await store.proposed(session, source_id)
-        return models.Proposal.model_validate(scraper) if scraper is not None else None
+        return Proposal.model_validate(scraper) if scraper is not None else None
 
     async def of_pull(self, source_id: uuid.UUID, pull: int) -> int | None:
         async with self._sessionmaker() as session:
             return await store.of_pull(session, source_id, pull)
 
-    async def standing(self, source_id: uuid.UUID) -> models.Standing:
+    async def standing(self, source_id: uuid.UUID) -> Standing:
         async with self._sessionmaker() as session:
             live = await store.current(session, source_id) is not None
             proposed = await store.proposed(session, source_id) is not None
-        return models.Standing(live=live, proposed=proposed)
+        return Standing(live=live, proposed=proposed)
 
     async def propose(self, lease: Lease, site: str, branch: str, pull: int) -> int:
         async with self._sessionmaker.begin() as session:
@@ -65,12 +67,12 @@ class Versions:
             raise exceptions.LeaseLost()
         return version
 
-    async def merged(self, lease: Lease, proposal: models.Proposal, commit: str) -> None:
+    async def merged(self, lease: Lease, proposal: Proposal, commit: str) -> None:
         async with self._sessionmaker.begin() as session:
             if not await store.merged(session, lease, proposal.version, proposal.site, commit):
                 raise exceptions.LeaseLost()
 
-    async def closed(self, lease: Lease, proposal: models.Proposal) -> None:
+    async def closed(self, lease: Lease, proposal: Proposal) -> None:
         async with self._sessionmaker.begin() as session:
             if not await store.closed(session, lease, proposal.version):
                 raise exceptions.LeaseLost()
@@ -82,24 +84,24 @@ class ScraperHistory:
     def __init__(self, sessionmaker: Sessionmaker) -> None:
         self._sessionmaker = sessionmaker
 
-    async def built_by(self, run_id: uuid.UUID) -> list[models.ScraperView]:
+    async def built_by(self, run_id: uuid.UUID) -> list[ScraperView]:
         async with self._sessionmaker() as session:
-            return [models.ScraperView.model_validate(scraper) for scraper in await store.built_by(session, run_id)]
+            return [ScraperView.model_validate(scraper) for scraper in await store.built_by(session, run_id)]
 
-    async def of_source(self, source_id: uuid.UUID) -> list[models.ScraperView]:
+    async def of_source(self, source_id: uuid.UUID) -> list[ScraperView]:
         async with self._sessionmaker() as session:
-            return [models.ScraperView.model_validate(scraper) for scraper in await store.of_source(session, source_id)]
+            return [ScraperView.model_validate(scraper) for scraper in await store.of_source(session, source_id)]
 
     async def reviewing_sources(self) -> set[uuid.UUID]:
         async with self._sessionmaker() as session:
             return set(await store.reviewing_sources(session))
 
-    async def newest(self, source_id: uuid.UUID) -> models.ScraperView:
+    async def newest(self, source_id: uuid.UUID) -> ScraperView:
         async with self._sessionmaker() as session:
             scraper = await store.newest(session, source_id)
         if scraper is None:
             raise exceptions.NoScraper(source_id)
-        return models.ScraperView.model_validate(scraper)
+        return ScraperView.model_validate(scraper)
 
 
 class Crawls:
@@ -108,7 +110,7 @@ class Crawls:
     tree and the kit it runs on (`foundry.core`: sessions, the stealth browser, replay) from this app, so a version
     merged long ago still crawls with today's kit; spiders import only the kit's public names."""
 
-    def __init__(self, browsers: Browsers, bucket: Bucket, state: models.CrawlState) -> None:
+    def __init__(self, browsers: Browsers, bucket: Bucket, state: CrawlState) -> None:
         self._browsers = browsers
         self._bucket = bucket
         self._state = state
@@ -116,14 +118,15 @@ class Crawls:
 
     async def live(
         self, tree: Path, source_id: uuid.UUID, key: str, access: Access, previous_valid: int,
-        watch: models.CrawlWatch, known: Mapping[str, SavedFile],
-    ) -> models.CrawlReport:  # fmt: skip
+        watch: CrawlWatch, known: Mapping[str, SavedFile],
+    ) -> CrawlReport:  # fmt: skip
         """A crawl of the live portal, always from a stealth browser on a residential address, which gets past most
         bot checks. It downloads every attachment not in `known` as it goes and uploads it to the bucket at once, and
         keeps its state in the run's folder, so a crawl whose worker died, that stalled, or that a person restarted
         carries on where it got to. One that sends no new request for its site's `stall` minutes is stopped."""
         site = self.site(tree, key)
-        folder = self._state.folder(watch.run_id)
+        root = self._state.folder(watch.run_id)
+        folder = self._taken_over(root, watch.attempt)
         (folder / "files").mkdir(parents=True, exist_ok=True)
         (folder / "stats.json").unlink(missing_ok=True)
         uploads = Uploads(self._bucket, folder / "files")
@@ -149,14 +152,24 @@ class Crawls:
             session = await self._browsers.session(browser, headers)
         await uploads.upload_new()
         report = self._report(job, returncode, folder / "stderr.log", previous_valid)
-        shutil.rmtree(folder, ignore_errors=True)
+        await asyncio.to_thread(shutil.rmtree, root, ignore_errors=True)
         await self._state.keep()
-        return report.model_copy(update={"session": session, "files": uploads.saved})
+        return report.from_browser(session, uploads.saved)
 
-    async def replay(self, tree: Path, key: str) -> models.CrawlReport:
+    def _taken_over(self, root: Path, attempt: int) -> Path:
+        """This attempt's folder, holding the newest earlier attempt's state: renamed, not shared, so a worker that
+        only went quiet and is still stopping writes to a folder no attempt reads again."""
+        folder = root / str(attempt)
+        earlier = sorted((int(older.name) for older in root.glob("*") if older.name.isdigit()), reverse=True)
+        newest = next((number for number in earlier if number < attempt), None)
+        if newest is not None and not folder.exists():
+            (root / str(newest)).rename(folder)
+        return folder
+
+    async def replay(self, tree: Path, key: str) -> CrawlReport:
         site = self.site(tree, key)
         try:
-            fixtures = models.FIXTURES.validate_json(site.fixtures.read_bytes())
+            fixtures = FIXTURES.validate_json(site.fixtures.read_bytes())
         except (OSError, ValidationError) as error:
             raise exceptions.SiteMissing(key, f"its fixtures don't load: {error}") from error
         with tempfile.TemporaryDirectory(prefix="foundry-crawl-") as folder:
@@ -194,7 +207,7 @@ class Crawls:
         )  # fmt: skip
 
     async def _watched(
-        self, tree: Path, job: CrawlJob, log: Path, watch: models.CrawlWatch, uploads: "Uploads", stall: dt.timedelta
+        self, tree: Path, job: CrawlJob, log: Path, watch: CrawlWatch, uploads: "Uploads", stall: dt.timedelta
     ) -> int | None:
         """Runs the crawl, and every POLL_SECONDS uploads what it saved and beats the run with its progress; every
         KEEP_SECONDS, keeps its state. Stops it when the run says so, or when it sent no request for `stall`: SIGTERM,
@@ -235,15 +248,15 @@ class Crawls:
                         await process.wait()
                     await self._state.keep()
 
-    def _report(self, job: CrawlJob, returncode: int | None, log: Path, previous_valid: int) -> models.CrawlReport:
+    def _report(self, job: CrawlJob, returncode: int | None, log: Path, previous_valid: int) -> CrawlReport:
         if returncode != 0 or not job.stats.exists():
             tail = log.read_bytes()[-STDERR_TAIL:].decode(errors="replace") if log.exists() else ""
             crashed = CrawlStats(crashes=1, examples=(tail,))
-            return models.CrawlReport(listings=(), crawl=models.Crawl.of(crashed, previous_valid, job))
+            return CrawlReport(listings=(), crawl=Crawl.of(crashed, previous_valid, job))
         stats = CrawlStats.model_validate_json(job.stats.read_text())
         lines = job.listings.read_text().splitlines() if job.listings.exists() else []
         listings = tuple(Listing.model_validate_json(line) for line in lines)
-        return models.CrawlReport(listings=listings, crawl=models.Crawl.of(stats, previous_valid, job))
+        return CrawlReport(listings=listings, crawl=Crawl.of(stats, previous_valid, job))
 
 
 class Uploads:
@@ -268,7 +281,7 @@ class Uploads:
                 continue
             content = self._folder / saved.sha256
             if content.exists():
-                await self._bucket.put(saved.sha256, content.read_bytes(), saved.content_type)
+                await self._bucket.put(saved.sha256, await asyncio.to_thread(content.read_bytes), saved.content_type)
                 content.unlink()
             cursor.write_text(str(number + 1))
 
@@ -292,9 +305,9 @@ class Healths:
     def __init__(self, sessionmaker: Sessionmaker) -> None:
         self._sessionmaker = sessionmaker
 
-    async def record(self, lease: Lease, health: models.Health, crawl: models.Crawl) -> models.Health:
+    async def record(self, lease: Lease, health: Health, crawl: Crawl) -> Health:
         updated = health.after(crawl)
-        found = crawl.valid if crawl.verdict == models.Verdict.HEALTHY else crawl.previous_valid
+        found = crawl.valid if crawl.verdict == Verdict.HEALTHY else crawl.previous_valid
         async with self._sessionmaker.begin() as session:
             if not await store.set_health(session, lease, updated.status, updated.heals, found):
                 raise exceptions.LeaseLost()

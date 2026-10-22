@@ -59,21 +59,24 @@ async def crawl(job: CrawlJob) -> None:
     module = importlib.util.module_from_spec(found)
     found.loader.exec_module(module)
     (portal,) = spider.spiders(module)
-    middlewares = {"foundry.core.spider.SessionMiddleware": 500}
+    middlewares = {"foundry.core.middlewares.SessionMiddleware": 500}
     if job.fixtures is not None:
-        middlewares["foundry.core.spider.ReplayMiddleware"] = 950
+        middlewares["foundry.core.middlewares.ReplayMiddleware"] = 950
     if job.browser is not None:
-        middlewares["foundry.core.spider.BrowserMiddleware"] = 960
+        middlewares["foundry.core.middlewares.BrowserMiddleware"] = 960
     settings = Settings(
         {
             "TWISTED_REACTOR_ENABLED": False,
             "DOWNLOADER_MIDDLEWARES": middlewares,
             "SPIDER_MIDDLEWARES": {
-                "foundry.core.spider.ResumeMiddleware": 50,
-                "foundry.core.spider.ErrorsMiddleware": 100,
+                "foundry.core.middlewares.ResumeMiddleware": 50,
+                "foundry.core.middlewares.ErrorsMiddleware": 100,
             },
-            "ITEM_PIPELINES": {"foundry.core.spider.FilesPipeline": 50, "foundry.core.spider.ListingPipeline": 100},
-            "EXTENSIONS": {"foundry.core.spider.ProgressExtension": 500},
+            "ITEM_PIPELINES": {
+                "foundry.core.pipelines.FilesPipeline": 50,
+                "foundry.core.pipelines.ListingPipeline": 100,
+            },
+            "EXTENSIONS": {"foundry.core.extensions.ProgressExtension": 500},
             "FOUNDRY_FILES": str(job.files) if job.files is not None else "",
             "FOUNDRY_KNOWN_FILES": job.known_files,
             "FOUNDRY_PROGRESS": str(job.progress) if job.progress is not None else "",
