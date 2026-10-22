@@ -15,7 +15,10 @@ POST /api/sources {url}        onboard run: Codex + Kernel browser (stealth, US 
      a person merges ── review (every 10 min, or the Review button) ── the merge commit is the scraper's version
 POST /api/sources/{id}/refresh crawl from main at that commit, in its own process ── download files of new notices
                                  ── store what's new ── judge health
-                                 healthy: ready · logged out: relogin run · broken: heal run · 3 repairs: a person
+                                 healthy: ready · logged out: relogin run · broken (a stall or a broken spider too):
+                                 heal run ── its fix is tested, and scraped once merged · 3 repairs: a person
+test scrape (any version)      went wrong: a version in review goes back to the agent that wrote it, with what failed
+                                 ── its next version is tested again · a live one gets a heal run · 3 in a row: a person
 ```
 
 ## Run it

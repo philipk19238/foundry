@@ -43,6 +43,12 @@ class Crawl(BaseModel, frozen=True):
     renewed: int = 0
 
     @classmethod
+    def broken(cls, why: str, previous_valid: int) -> "Crawl":
+        """A crawl that never got to report: it stalled on every attempt, or its spider wouldn't load. The scraper's
+        to fix, like a crash."""
+        return cls(auth_failed=False, crashed=True, invalid=0, valid=0, previous_valid=previous_valid, errors=(why,))
+
+    @classmethod
     def of(cls, stats: CrawlStats, previous_valid: int, job: CrawlJob) -> "Crawl":
         return cls(
             auth_failed=stats.logged_out,
