@@ -306,9 +306,10 @@ class Schedule:
     jobs stranded waiting on a source nothing holds and the pull requests decided on GitHub."""
 
     def __init__(
-        self, runs: Runs, leases: Leases, queue: Queue, catalog: Catalog, versions: Versions, pulls: GitHubPulls
-    ) -> None:
-        self._runs = runs
+        self, history: RunHistory, leases: Leases, queue: Queue, catalog: Catalog, versions: Versions,
+        pulls: GitHubPulls,
+    ) -> None:  # fmt: skip
+        self._history = history
         self._leases = leases
         self._queue = queue
         self._catalog = catalog
@@ -316,10 +317,16 @@ class Schedule:
         self._pulls = pulls
 
     async def refresh_ready(self) -> int:
-        """Fails runs whose worker is gone, then queues a refresh of every source whose scraper is healthy; the
-        schedule calls this."""
+        """Fails runs whose worker is gone, then queues a refresh of every source whose scraper is healthy, and of
+        every source left healing with no agent on it (its heal failed or lost its worker), whose crawl then decides
+        again; the schedule calls this."""
         await self._queue.revive()
-        ready = [source for source in await self._catalog.sources() if source.status == SourceStatus.READY]
+        busy = await self._history.working_sources() | await self._history.waiting_sources()
+        ready = [
+            source
+            for source in await self._catalog.sources()
+            if source.status == SourceStatus.READY or (source.status == SourceStatus.HEALING and source.id not in busy)
+        ]
         for source in ready:
             await self._queue.request(source.id, RunKind.REFRESH, None)
         return len(ready)
