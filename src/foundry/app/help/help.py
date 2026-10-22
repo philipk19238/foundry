@@ -9,7 +9,7 @@ from foundry.app.db.db import Sessionmaker, now
 from foundry.app.db.models.help import HelpStatus
 from foundry.app.help import models, store
 from foundry.app.runs.models import EventKind
-from foundry.app.runs.runs import RunHistory, Runs, Timeline
+from foundry.app.runs.runs import Pauses, Queue, RunHistory, Timeline
 from foundry.app.settings import settings
 
 WAIT = dt.timedelta(minutes=45)
@@ -25,19 +25,24 @@ class RunChat:
     """A run's chat, from the people's side: what they write reaches the agent, and answers its request when it is
     waiting on one."""
 
-    def __init__(self, sessionmaker: Sessionmaker, timeline: Timeline, history: RunHistory) -> None:
+    def __init__(self, sessionmaker: Sessionmaker, timeline: Timeline, history: RunHistory, queue: Queue) -> None:
         self._sessionmaker = sessionmaker
         self._timeline = timeline
         self._history = history
+        self._queue = queue
 
     async def say(self, run_id: uuid.UUID, user: UserView, text: str) -> None:
         """A person writes to the agent. While the agent waits on a request this person may answer, the message
-        answers it; otherwise it reaches the agent in its running turn."""
-        if not (await self._history.run(run_id)).is_active:
-            raise exceptions.RunEnded(run_id)
+        answers it; while it works, the message reaches its running turn; once the run has ended, the message reopens
+        it and the agent carries on in the same conversation."""
+        run = await self._history.run(run_id)
+        if not run.has_agent:
+            raise exceptions.NoAgent(run_id)
         async with self._sessionmaker.begin() as session:
             answered = await store.answer(session, run_id, user.id, text, now())
         await self._timeline.wrote(run_id, EventKind.ANSWER if answered else EventKind.PERSON, user.email, text)
+        if not run.is_active:
+            await self._queue.reopen(run_id)
 
     async def ask_to_take_over(self, run_id: uuid.UUID, user: UserView) -> None:
         """Asks the agent to pause and open a help request, which this person can then claim."""
@@ -108,14 +113,14 @@ class HelpDesk:
         sessionmaker: Sessionmaker,
         users: Users,
         notifier: models.Notifier,
-        runs: Runs,
+        pauses: Pauses,
         timeline: Timeline,
         queue: HelpQueue,
     ) -> None:
         self._sessionmaker = sessionmaker
         self._users = users
         self._notifier = notifier
-        self._runs = runs
+        self._pauses = pauses
         self._timeline = timeline
         self._queue = queue
 
@@ -124,7 +129,7 @@ class HelpDesk:
         at = now()
         async with self._sessionmaker.begin() as session:
             request = await store.add(session, run_id, reason, live_view_url, at, at + WAIT)
-        await self._runs.pause(run_id)
+        await self._pauses.pause(run_id)
         try:
             await self._timeline.log(run_id, EventKind.HELP, reason)
             url = f"{settings.base_url}/runs/{run_id}"
@@ -134,7 +139,7 @@ class HelpDesk:
                 await self._timeline.log(run_id, EventKind.ERROR, str(error))
             answer = await self._answer(request.id)
         finally:
-            await self._runs.resume(run_id)
+            await self._pauses.resume(run_id)
         if isinstance(answer, models.NoAnswer):
             await self._timeline.log(run_id, EventKind.NOTE, "Nobody answered in time, so the agent stopped waiting")
         return answer

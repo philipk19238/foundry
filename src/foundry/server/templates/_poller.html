@@ -1,5 +1,0 @@
-{% if run.is_active %}
-<div id="poller" hx-get="/runs/{{ run.id }}/events?after={{ after }}" hx-trigger="every 2s" hx-swap="outerHTML"></div>
-{% else %}
-<div id="poller"></div>
-{% endif %}

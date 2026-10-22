@@ -1,8 +1,9 @@
 import uuid
+from collections.abc import AsyncGenerator
 from typing import Annotated
 
 from fastapi import APIRouter, Form, Request, status
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.templating import Jinja2Templates
 
 from foundry.app.auth.auth import Logins
@@ -11,9 +12,10 @@ from foundry.app.catalog.catalog import Catalog
 from foundry.app.db.db import now
 from foundry.app.db.models.runs import RunKind
 from foundry.app.help.help import HelpQueue, RunChat
-from foundry.app.runs.runs import Queue, RunHistory, Timeline
-from foundry.app.scrapers.scrapers import Versions
+from foundry.app.runs.runs import Queue, RunFeed, RunHistory, Timeline
+from foundry.app.scrapers.scrapers import ScraperHistory, Versions
 from foundry.app.settings import Settings
+from foundry.server.models import TrialView
 from foundry.server.routes.auth import Admin, SignedIn
 
 router = APIRouter(default_response_class=HTMLResponse)
@@ -50,6 +52,7 @@ async def source(request: Request, source_id: uuid.UUID, services: SignedIn) -> 
         "user": user,
         "source": await catalog.source(source_id),
         "proposal": await versions.proposed(source_id),
+        "scrapers": await (await services.aget(ScraperHistory)).of_source(source_id),
         "repo": settings.repo,
         "runs": await runs.of_source(source_id),
         "notices": await catalog.notices(source_id),
@@ -77,15 +80,21 @@ async def run(request: Request, run_id: uuid.UUID, services: SignedIn) -> Respon
         "source": await catalog.source(found.source_id),
         "events": await timeline.since(run_id, 0),
         "help": await desk.of_run(run_id),
+        "built": await (await services.aget(ScraperHistory)).built_by(run_id),
+        "trial": TrialView.of(found),
+        "repo": (await services.aget(Settings)).repo,
     }
     return templates.TemplateResponse(request, "run.html", context)
 
 
 @router.get("/runs/{run_id}/events")
 async def run_events(request: Request, run_id: uuid.UUID, services: SignedIn, after: int = 0) -> Response:
-    """The run's new timeline lines and its status, polled by the run page."""
-    templates, runs, timeline, desk = await services.aget(Jinja2Templates, RunHistory, Timeline, HelpQueue)
+    """The run's new lines since ``after``, as out-of-band swaps: what sending a message gets back."""
+    templates, user, runs, timeline, desk = await services.aget(
+        Jinja2Templates, UserView, RunHistory, Timeline, HelpQueue
+    )
     context = {
+        "user": user,
         "run": await runs.run(run_id),
         "events": await timeline.since(run_id, after),
         "after": after,
@@ -94,18 +103,50 @@ async def run_events(request: Request, run_id: uuid.UUID, services: SignedIn, af
     return templates.TemplateResponse(request, "events.html", context)
 
 
+@router.get("/runs/{run_id}/stream")
+async def stream(request: Request, run_id: uuid.UUID, services: SignedIn, after: int = 0) -> Response:
+    """The run's chat, live: each new line is pushed as it is written (server-sent events), as the same out-of-band
+    swaps sending a message gets back. A reconnecting browser sends the last line it saw as Last-Event-ID and picks up
+    from there."""
+    templates, user, feed, desk = await services.aget(Jinja2Templates, UserView, RunFeed, HelpQueue)
+    page = templates.get_template("events.html")
+    since = int(request.headers.get("last-event-id") or after)
+
+    async def frames() -> AsyncGenerator[str, None]:
+        async for update in feed.follow(run_id, since, request.is_disconnected):
+            context = {"user": user, "run": update.run, "events": update.events, "after": update.after}
+            html = page.render({**context, "help": await desk.of_run(run_id)})
+            yield (
+                f"id: {update.after}\nevent: lines\n" + "".join(f"data: {line}\n" for line in html.splitlines()) + "\n"
+            )
+
+    headers = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
+    return StreamingResponse(frames(), media_type="text/event-stream", headers=headers)
+
+
 @router.post("/runs/{run_id}/messages")
-async def say(run_id: uuid.UUID, text: Annotated[str, Form()], services: SignedIn) -> Response:
+async def say(
+    request: Request, run_id: uuid.UUID, text: Annotated[str, Form()], services: SignedIn,
+    after: Annotated[int, Form()] = 0,
+) -> Response:  # fmt: skip
+    """Sends a message; the page gets back every new line since ``after``, its own message included, so it shows at
+    once instead of on the next poll."""
     user, chat = await services.aget(UserView, RunChat)
     await chat.say(run_id, user, text.strip())
-    return RedirectResponse(f"/runs/{run_id}", status_code=status.HTTP_303_SEE_OTHER)
+    if "HX-Request" not in request.headers:
+        return RedirectResponse(f"/runs/{run_id}", status_code=status.HTTP_303_SEE_OTHER)
+    return await run_events(request, run_id, services, after)
 
 
 @router.post("/runs/{run_id}/takeover")
-async def take_over(run_id: uuid.UUID, services: SignedIn) -> Response:
+async def take_over(
+    request: Request, run_id: uuid.UUID, services: SignedIn, after: Annotated[int, Form()] = 0
+) -> Response:
     user, chat = await services.aget(UserView, RunChat)
     await chat.ask_to_take_over(run_id, user)
-    return RedirectResponse(f"/runs/{run_id}", status_code=status.HTTP_303_SEE_OTHER)
+    if "HX-Request" not in request.headers:
+        return RedirectResponse(f"/runs/{run_id}", status_code=status.HTTP_303_SEE_OTHER)
+    return await run_events(request, run_id, services, after)
 
 
 @router.get("/help")
@@ -136,15 +177,16 @@ async def help_page(request: Request, help_id: uuid.UUID, services: SignedIn) ->
 @router.post("/help/{help_id}/claim")
 async def claim(help_id: uuid.UUID, services: SignedIn) -> Response:
     user, desk = await services.aget(UserView, HelpQueue)
-    await desk.claim(help_id, user)
-    return RedirectResponse(f"/help/{help_id}", status_code=status.HTTP_303_SEE_OTHER)
+    request_ = await desk.claim(help_id, user)
+    return RedirectResponse(f"/runs/{request_.run_id}", status_code=status.HTTP_303_SEE_OTHER)
 
 
 @router.post("/help/{help_id}/give-back")
 async def give_back(help_id: uuid.UUID, services: SignedIn) -> Response:
     user, desk = await services.aget(UserView, HelpQueue)
     await desk.give_back(help_id, user)
-    return RedirectResponse(f"/help/{help_id}", status_code=status.HTTP_303_SEE_OTHER)
+    request_ = await desk.request(help_id)
+    return RedirectResponse(f"/runs/{request_.run_id}", status_code=status.HTTP_303_SEE_OTHER)
 
 
 @router.post("/help/{help_id}/done")

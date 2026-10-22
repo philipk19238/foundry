@@ -6,6 +6,7 @@ import os
 import sys
 import uuid
 from pathlib import Path
+from typing import assert_never
 
 from openai_codex import ApprovalMode, AsyncCodex, AsyncTurnHandle, CodexConfig, Sandbox
 from openai_codex.errors import CodexError
@@ -170,8 +171,9 @@ class Workspaces:
     def of(self, run_id: uuid.UUID) -> Workspace:
         return Workspace(self._root / str(run_id))
 
-    async def prepare(self, lease: Lease) -> Workspace:
+    async def prepare(self, lease: Lease) -> tuple[Workspace, handoff.Start]:
         workspace = self.of(lease.run_id)
+        start = handoff.Start.FRESH if workspace.thread() is None else handoff.Start.REOPENED
         workspace.folder.mkdir(parents=True, exist_ok=True)
         workspace.home.mkdir(exist_ok=True)
         await self._clones.clone(workspace.folder, workspace.branch)
@@ -179,7 +181,8 @@ class Workspaces:
             await self._clones.onto_main(workspace.checkout)
             workspace.handoff.forget_pull()
             workspace.restarts.came_back()
-        return workspace
+            start = handoff.Start.RESTARTED
+        return workspace, start
 
 
 class Inbox:
@@ -254,11 +257,6 @@ class Codex:
                     developer_instructions=instructions,
                     model=self._settings.codex_model,
                     sandbox=Sandbox.workspace_write,
-                )
-                prompt = (
-                    (Path(__file__).parent / "prompts" / "restarted.md")
-                    .read_text()
-                    .format(commit=self._settings.deployed_commit or "(local)", session_id=browser.session_id)
                 )
             turn = await thread.turn(prompt, effort=ReasoningEffort(self._settings.codex_effort))
             delivery = asyncio.create_task(self._inbox.deliver(context.run_id, workspace, turn))
@@ -363,7 +361,7 @@ class Agent:
 
     def __init__(
         self, browsers: Browsers, accounts: Accounts, workspaces: Workspaces, codex: Codex, proposals: Proposals,
-        timeline: Timeline,
+        timeline: Timeline, settings: Settings,
     ) -> None:  # fmt: skip
         self._browsers = browsers
         self._accounts = accounts
@@ -371,9 +369,21 @@ class Agent:
         self._codex = codex
         self._proposals = proposals
         self._timeline = timeline
+        self._commit = settings.deployed_commit or "(local)"
+
+    def prompt(self, task: tasks.Task, start: handoff.Start, browser: Browser) -> str:
+        """What begins the turn: the task itself the first time; after a restart or a reopen, where the run stands."""
+        match start:
+            case handoff.Start.FRESH:
+                return task.prompt
+            case handoff.Start.RESTARTED | handoff.Start.REOPENED:
+                text = (tasks.PROMPTS / f"{start}.md").read_text()
+                return text.format(commit=self._commit, session_id=browser.session_id)
+            case _:
+                assert_never(start)
 
     async def run(self, lease: Lease, task: tasks.Task) -> outcomes.Outcome:
-        workspace = await self._workspaces.prepare(lease)
+        workspace, start = await self._workspaces.prepare(lease)
         async with self._browsers.opened(lease.source_id) as browser:
             await self._timeline.log(lease.run_id, EventKind.STATUS, "Opened a Kernel browser.")
             context = handoff.ToolsContext(
@@ -383,7 +393,7 @@ class Agent:
                 live_view_url=browser.live_view_url,
                 workspace=workspace.folder,
             )
-            await self._codex.work(browser, context, workspace, task.prompt)
+            await self._codex.work(browser, context, workspace, self.prompt(task, start, browser))
             await self._accounts.save_session(lease, await self._browsers.session(browser, {}))
         commit = workspace.restarts.asked()
         if commit is not None:

@@ -1,8 +1,8 @@
 {% if event.kind == "note" %}
-<li class="c-note"><span>{{ event.text }} · {{ event.at.strftime("%H:%M") }}</span></li>
+<li class="c-note" id="e-{{ event.id }}"><span>{{ event.text }} · {{ event.at.strftime("%H:%M") }}</span></li>
 {% else %}
 {% set mine = event.kind in ("person", "answer") %}
-<li class="c-msg {{ 'mine' if mine else 'theirs' }}{{ ' asking' if event.kind == 'help' else '' }}">
+<li class="c-msg {{ 'mine' if mine else 'theirs' }}{{ ' asking' if event.kind == 'help' else '' }}" id="e-{{ event.id }}">
   {% if not mine %}<span class="c-avatar" aria-hidden="true">✦</span>{% endif %}
   <div class="c-body">
     <div class="c-meta">

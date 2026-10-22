@@ -79,6 +79,13 @@ _REAP = (
     .returning(Run.id)
 )
 _SET_STATUS = update(Run).where(Run.id == bindparam("run")).values(status=bindparam("state"))
+_ENDED = (RunStatus.SUCCEEDED, RunStatus.FAILED, RunStatus.SKIPPED)
+_REOPEN = (
+    update(Run)
+    .where(Run.id == bindparam("run"), Run.status.in_(_ENDED))
+    .values(status=RunStatus.QUEUED, summary=None, finished_at=None)
+    .returning(Run.id)
+)
 _START = update(Run).where(Run.id == bindparam("run")).values(status=RunStatus.RUNNING, started_at=bindparam("at"))
 _FINISH = (
     update(Run)
@@ -140,6 +147,11 @@ async def renew(
 
 async def release(session: AsyncSession, source_id: uuid.UUID, run_id: uuid.UUID, fence: int) -> None:
     await session.execute(_RELEASE, {"source": source_id, "run": run_id, "token": fence})
+
+
+async def reopen(session: AsyncSession, run_id: uuid.UUID) -> bool:
+    """Queues an ended run again; False if it hasn't ended."""
+    return await session.scalar(_REOPEN, {"run": run_id}) is not None
 
 
 async def start(session: AsyncSession, run_id: uuid.UUID, at: dt.datetime) -> None:

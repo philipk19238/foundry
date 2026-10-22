@@ -1,4 +1,4 @@
-<li class="event {{ event.kind }}">
+<li class="event {{ event.kind }}" id="t-{{ event.id }}">
   <span class="glyph">{{ {"status": "↻", "message": "●", "command": "$", "tool": "⚙", "file": "✎", "help": "✋", "person": "✍", "answer": "✍", "note": "·", "crawl": "⇣", "error": "✕"}[event.kind] }}</span>
   <time>{{ event.at.strftime("%H:%M:%S") }}</time>
   <pre>{{ event.text }}</pre>

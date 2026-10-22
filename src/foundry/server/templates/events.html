@@ -3,6 +3,6 @@
 {% set doing = (events | rejectattr("in_chat") | list | last) if events else none %}
 {% if doing or not run.is_active %}<div hx-swap-oob="outerHTML:#ticker">{% include "_ticker.html" %}</div>{% endif %}
 <div id="run-status" class="facts" hx-swap-oob="true">{% include "_run_status.html" %}</div>
+{% if run.has_agent %}<div hx-swap-oob="outerHTML:#c-hint">{% include "_hint.html" %}</div>{% endif %}
 <section id="help-box" hx-swap-oob="true">{% include "_help_box.html" %}</section>
-{% set after = events[-1].id if events else after %}
-{% include "_poller.html" %}
+<input type="hidden" id="after" name="after" value="{{ events[-1].id if events else after }}" hx-swap-oob="true">

@@ -59,6 +59,28 @@ class Versions:
                 raise exceptions.LeaseLost()
 
 
+class ScraperHistory:
+    """Every version of each source's spider, merged or not, and which run's agent built it."""
+
+    def __init__(self, sessionmaker: Sessionmaker) -> None:
+        self._sessionmaker = sessionmaker
+
+    async def built_by(self, run_id: uuid.UUID) -> list[models.ScraperView]:
+        async with self._sessionmaker() as session:
+            return [models.ScraperView.model_validate(scraper) for scraper in await store.built_by(session, run_id)]
+
+    async def of_source(self, source_id: uuid.UUID) -> list[models.ScraperView]:
+        async with self._sessionmaker() as session:
+            return [models.ScraperView.model_validate(scraper) for scraper in await store.of_source(session, source_id)]
+
+    async def newest(self, source_id: uuid.UUID) -> models.ScraperView:
+        async with self._sessionmaker() as session:
+            scraper = await store.newest(session, source_id)
+        if scraper is None:
+            raise exceptions.NoScraper(source_id)
+        return models.ScraperView.model_validate(scraper)
+
+
 class Crawls:
     """Runs a site's spider in a process of its own, from a tree of the repo (a run's checkout, or `main` at the
     commit that merged it), so the spider runs with that tree's core: live with a session, or offline against the

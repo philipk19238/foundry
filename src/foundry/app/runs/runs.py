@@ -2,7 +2,7 @@ import asyncio
 import datetime as dt
 import functools
 import uuid
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from typing import TypeVar
 
 from pydantic import JsonValue
@@ -14,6 +14,8 @@ from foundry.app.db.models.runs import RunKind, RunStatus
 from foundry.app.runs import models, store
 
 LEASE = dt.timedelta(minutes=2)
+FEED_SECONDS = 0.5
+FEED_HEARTBEAT = 15.0
 BEAT = dt.timedelta(seconds=30)
 PAGE = 100
 EVENT_PAGE = 500
@@ -120,6 +122,29 @@ class RunHistory:
         return models.RunView.model_validate(run) if run is not None else None
 
 
+class RunFeed:
+    """A run's new lines as they are written, for a page to stream. The server reads the timeline every half second,
+    so a browser hears of a line about as soon as it exists; when nothing changes it hears a heartbeat now and then."""
+
+    def __init__(self, timeline: Timeline, history: RunHistory) -> None:
+        self._timeline = timeline
+        self._history = history
+
+    async def follow(
+        self, run_id: uuid.UUID, after: int, stopped: Callable[[], Awaitable[bool]]
+    ) -> AsyncGenerator[models.FeedUpdate, None]:
+        status = None
+        quiet = 0.0
+        while not await stopped():
+            run = await self._history.run(run_id)
+            events = await self._timeline.since(run_id, after)
+            if events or run.status != status or quiet >= FEED_HEARTBEAT:
+                yield models.FeedUpdate(run=run, events=events, after=events[-1].id if events else after)
+                after, status, quiet = (events[-1].id if events else after), run.status, 0.0
+            await asyncio.sleep(FEED_SECONDS)
+            quiet += FEED_SECONDS
+
+
 class Runs:
     """Jobs on sources: recorded when asked for, then started, paused for a person, resumed and finished."""
 
@@ -138,20 +163,6 @@ class Runs:
             await store.start(session, run_id, now())
         await self._timeline.log(run_id, models.EventKind.STATUS, "Started.")
 
-    async def pause(self, run_id: uuid.UUID) -> None:
-        """The run is waiting for a person."""
-        async with self._sessionmaker.begin() as session:
-            await store.set_status(session, run_id, RunStatus.WAITING)
-
-    async def resume(self, run_id: uuid.UUID) -> None:
-        async with self._sessionmaker.begin() as session:
-            await store.set_status(session, run_id, RunStatus.RUNNING)
-
-    async def restart(self, run_id: uuid.UUID) -> None:
-        """The run's worker stops so a new deployment can carry it on; the reaper leaves it alone meanwhile."""
-        async with self._sessionmaker.begin() as session:
-            await store.set_status(session, run_id, RunStatus.RESTARTING)
-
     async def reap(self) -> int:
         """Fails the runs whose worker is gone; the schedule and every boot call this."""
         at = now()
@@ -169,17 +180,53 @@ class Runs:
         await self._timeline.log(run_id, models.EventKind.STATUS, f"{status.capitalize()}: {summary}")
 
 
+class Pauses:
+    """A run stepping aside and coming back: waiting for a person, restarting on newly deployed code, or reopened by a
+    message after it ended."""
+
+    def __init__(self, sessionmaker: Sessionmaker, timeline: Timeline) -> None:
+        self._sessionmaker = sessionmaker
+        self._timeline = timeline
+
+    async def pause(self, run_id: uuid.UUID) -> None:
+        """The run is waiting for a person."""
+        async with self._sessionmaker.begin() as session:
+            await store.set_status(session, run_id, RunStatus.WAITING)
+
+    async def resume(self, run_id: uuid.UUID) -> None:
+        async with self._sessionmaker.begin() as session:
+            await store.set_status(session, run_id, RunStatus.RUNNING)
+
+    async def restart(self, run_id: uuid.UUID) -> None:
+        """The run's worker stops so a new deployment can carry it on; the reaper leaves it alone meanwhile."""
+        async with self._sessionmaker.begin() as session:
+            await store.set_status(session, run_id, RunStatus.RESTARTING)
+
+    async def reopen(self, run_id: uuid.UUID) -> bool:
+        async with self._sessionmaker.begin() as session:
+            reopened = await store.reopen(session, run_id)
+        if reopened:
+            await self._timeline.log(run_id, models.EventKind.NOTE, "Reopened to answer a new message")
+        return reopened
+
+
 class Queue:
     """Where runs are asked for, by a person, the schedule or the healing loop, and handed to the dispatcher."""
 
-    def __init__(self, runs: Runs, dispatcher: models.Dispatcher) -> None:
+    def __init__(self, runs: Runs, pauses: Pauses, dispatcher: models.Dispatcher) -> None:
         self._runs = runs
+        self._pauses = pauses
         self._dispatcher = dispatcher
 
     async def request(self, source_id: uuid.UUID, kind: RunKind, requested_by: uuid.UUID | None) -> models.RunView:
         run = await self._runs.add(source_id, kind, requested_by)
         await self._dispatcher.dispatch(run.id)
         return run
+
+    async def reopen(self, run_id: uuid.UUID) -> None:
+        """Carries an ended agent run on, in the same conversation and workspace, because someone wrote to it."""
+        if await self._pauses.reopen(run_id):
+            await self._dispatcher.dispatch(run_id)
 
     async def redeploy(self, run_id: uuid.UUID) -> None:
         """Carries a restarting run on after a redeploy, on the new code. Called once the run let go of its lease."""

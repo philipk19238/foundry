@@ -79,7 +79,7 @@ include = ["src", "tests"]
 [tool.ruff]
 target-version = "py311"
 line-length = 120
-exclude = ["src/foundry/app/db/migrations/versions"]
+exclude = ["src/foundry/app/db/migrations/versions", "workspaces", "files", ".cache"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "TID251"]
@@ -94,6 +94,7 @@ line-ending = "auto"
 
 [tool.pytest.ini_options]
 minversion = "9.1"
+testpaths = ["tests"]
 strict = true
 asyncio_mode = "strict"
 asyncio_default_fixture_loop_scope = "function"

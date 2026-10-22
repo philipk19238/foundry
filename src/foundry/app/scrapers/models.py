@@ -6,7 +6,7 @@ from typing import assert_never
 from pydantic import BaseModel, ConfigDict, TypeAdapter
 
 from foundry.app.catalog.models import IngestCounts
-from foundry.app.db.models.catalog import SourceStatus
+from foundry.app.db.models.catalog import ScraperState, SourceStatus
 from foundry.core.models import CrawlStats, Fixture, Listing
 
 MAX_HEALS = 3
@@ -35,6 +35,27 @@ class Proposal(BaseModel):
     site: str
     branch: str
     pull: int
+
+
+class ScraperView(BaseModel):
+    """Any version of a source's spider, merged or not, and the run whose agent built it."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    source_id: uuid.UUID
+    version: int
+    site: str
+    state: ScraperState
+    branch: str
+    pull: int
+    commit: str | None
+    run_id: uuid.UUID
+    created_at: dt.datetime
+
+    @property
+    def ref(self) -> str:
+        """Where its code is: the merge commit once merged, else the tip of the agent's branch."""
+        return self.commit if self.commit is not None else f"refs/heads/{self.branch}"
 
 
 class Verdict(enum.StrEnum):

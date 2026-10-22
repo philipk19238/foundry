@@ -1,11 +1,12 @@
 """The server's composition root: what the registry holds, the seeded user, the error translator, and the routes."""
 
+import time
 from collections.abc import AsyncGenerator
 from pathlib import Path
 
 import svcs
 import svcs.fastapi
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -21,11 +22,19 @@ from foundry.worker import worker
 HERE = Path(__file__).parent
 
 
+VERSION = settings.deployed_commit or str(int(time.time()))
+
+
+def assets(request: Request) -> dict[str, str]:
+    """The deploy's version on every page, so a new deploy's stylesheet replaces the browser's cached one."""
+    return {"version": VERSION}
+
+
 @svcs.fastapi.lifespan
 async def lifespan(app: FastAPI, registry: svcs.Registry) -> AsyncGenerator[None, None]:
     foundry.register(registry)
     worker.register(registry)
-    registry.register_value(Jinja2Templates, Jinja2Templates(directory=HERE / "templates"))
+    registry.register_value(Jinja2Templates, Jinja2Templates(directory=HERE / "templates", context_processors=[assets]))
     await worker.booted(registry)
     async with svcs.Container(registry) as services:
         runs = await services.aget(Runs)
