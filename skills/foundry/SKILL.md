@@ -50,8 +50,9 @@ The agent job is `get_scraper(...).progress.agent`. Talk to it the way you would
 
 ### Listening instead of polling
 
-A client on the 2026-07-28 MCP protocol (the Python SDK's `Client` negotiates it; check
-`client.session.protocol_version`) can hear changes instead of calling `wait_for_run` in a loop. Each job and scraper is a
+A client on the 2026-07-28 MCP protocol can hear changes instead of calling `wait_for_run` in a loop. Pin it:
+`Client(url_transport, mode="2026-07-28")` in the Python SDK. Left to negotiate, the SDK gives up on the newer protocol
+after 10 s, and a cold server takes longer than that, so the client falls back to the old one, which can't listen. Each job and scraper is a
 resource:
 
 | Resource | What it is | Updated when |
@@ -69,8 +70,9 @@ async with client.listen(resource_subscriptions=[f"foundry://runs/{run_id}/chat"
 ```
 
 An update carries no content: read the resource again. Read it once right after the listen opens, since nothing is
-replayed. A stream that drops ends the loop: listen again and read again. Updates arrive about a second after the
-change.
+replayed. The host ends each stream after about 5 minutes (`SubscriptionLost` in the Python SDK): listen again and
+read again. Updates arrive about a second after the change; a running scrape updates its run every 5 seconds with its
+progress.
 
 Be specific in messages: name the portal page, what is missing, and what done looks like. The agent cannot see this
 conversation.
