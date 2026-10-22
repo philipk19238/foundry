@@ -32,7 +32,7 @@
             <p><a href="{{ listing.url }}" target="_blank" rel="noopener">Open on the portal</a>{% if listing.external_id %} <span class="muted">Portal id {{ listing.external_id }}</span>{% endif %}</p>
             {% if listing.description %}<p class="small">{{ listing.description | truncate(600) }}</p>{% endif %}
             {% for file in listing.files %}<a class="file" href="{{ file.url }}" target="_blank" rel="noopener">{{ file.name }}</a>{% endfor %}
-            {% if listing.metadata %}<pre class="small">{{ listing.metadata | tojson(indent=2) }}</pre>{% endif %}
+            {% set record = listing %}{% include "_record.html" %}
           </div>
         </details>
       </li>

@@ -10,7 +10,7 @@
         <span class="muted">{% if across %}from <a href="/sources/{{ row.source_id }}/data">{{ row.source }}</a>, {% endif %}first seen {{ notice.first_seen_at.strftime("%b %d") }}{% if notice.external_id %}, portal id {{ notice.external_id }}{% endif %}{% if row.edits %}, edited {{ row.edits }} time{{ "s" if row.edits > 1 }}{% endif %}</span></p>
       {% if notice.description %}<p class="small">{{ notice.description | truncate(800) }}</p>{% endif %}
       {% if notice.files %}<div class="row">{% for file in notice.files %}<a class="file" href="/files/{{ notice.notice_id }}/{{ file.file_id }}" target="_blank" rel="noopener">{{ file.name }}</a>{% endfor %}</div>{% endif %}
-      {% if notice.metadata %}<pre class="small">{{ notice.metadata | tojson(indent=2) }}</pre>{% endif %}
+      {% set record = notice %}{% include "_record.html" %}
     </div>
   </details>
 </li>

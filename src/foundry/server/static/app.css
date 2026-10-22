@@ -306,3 +306,5 @@ main > * { min-width: 0; }
 .more-ways summary { cursor: pointer; color: var(--muted); font-size: 14px; }
 .more-ways[open] { display: grid; gap: 8px; }
 .more-ways .ask { margin-top: 8px; }
+.record > summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+.record pre { margin-top: 6px; max-height: 480px; overflow: auto; word-break: break-word; }
