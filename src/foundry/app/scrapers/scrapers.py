@@ -8,7 +8,9 @@ from pathlib import Path
 import httpx
 from pydantic import ValidationError
 
+import foundry
 from foundry.app import exceptions
+from foundry.app.browser.browser import Browsers
 from foundry.app.catalog.models import ScrapedNotice, StoredFile
 from foundry.app.core.models import Lease
 from foundry.app.db.db import Sessionmaker, now
@@ -19,6 +21,7 @@ from foundry.core.models import Access, CrawlJob, CrawlStats, Fixture, Listing, 
 from foundry.core.sites import Sites
 
 CRAWL_TIMEOUT = 1800
+KIT = str(Path(foundry.__file__).parents[1])
 STDERR_TAIL = 2000
 
 
@@ -97,14 +100,25 @@ class ScraperHistory:
 
 class Crawls:
     """Runs a site's spider in a process of its own, from a tree of the repo (a run's checkout, or `main` at the
-    commit that merged it), so the spider runs with that tree's core: live with a session, or offline against the
-    site's fixtures."""
+    commit that merged it): live with a session, or offline against the site's fixtures. The spider comes from the
+    tree and the kit it runs on (`foundry.core`: sessions, the stealth browser, replay) from this app, so a version
+    merged long ago still crawls with today's kit; spiders import only the kit's public names."""
 
-    def __init__(self) -> None:
+    def __init__(self, browsers: Browsers) -> None:
+        self._browsers = browsers
         self._python = sys.executable
 
-    async def live(self, tree: Path, key: str, access: Access, previous_valid: int) -> models.CrawlReport:
-        return await self._run(tree, self.site(tree, key), access, None, previous_valid)
+    async def live(
+        self, tree: Path, source_id: uuid.UUID, key: str, access: Access, previous_valid: int
+    ) -> models.CrawlReport:
+        """A crawl of the live portal: plain first, and if the portal turns it away with no session to blame, the
+        same crawl again from a stealth browser on a residential address, which gets past most bot checks."""
+        site = self.site(tree, key)
+        report = await self._run(tree, site, access, None, None, previous_valid)
+        if not report.crawl.blocked:
+            return report
+        async with self._browsers.bare(source_id) as browser:
+            return await self._run(tree, site, access, None, browser.cdp_url, previous_valid)
 
     async def replay(self, tree: Path, key: str) -> models.CrawlReport:
         site = self.site(tree, key)
@@ -112,7 +126,7 @@ class Crawls:
             fixtures = models.FIXTURES.validate_json(site.fixtures.read_bytes())
         except (OSError, ValidationError) as error:
             raise exceptions.SiteMissing(key, f"its fixtures don't load: {error}") from error
-        return await self._run(tree, site, Access(), fixtures, 0)
+        return await self._run(tree, site, Access(), fixtures, None, 0)
 
     def site(self, tree: Path, key: str) -> Site:
         try:
@@ -121,8 +135,9 @@ class Crawls:
             raise exceptions.SiteMissing(key, str(error)) from error
 
     async def _run(
-        self, tree: Path, site: Site, access: Access, fixtures: list[Fixture] | None, previous_valid: int
-    ) -> models.CrawlReport:
+        self, tree: Path, site: Site, access: Access, fixtures: list[Fixture] | None, browser: str | None,
+        previous_valid: int,
+    ) -> models.CrawlReport:  # fmt: skip
         with tempfile.TemporaryDirectory(prefix="foundry-crawl-") as folder:
             root = Path(folder)
             job = CrawlJob(
@@ -133,11 +148,13 @@ class Crawls:
                 session=access.session,
                 credentials=access.credentials,
                 fixtures=fixtures,
+                browser=browser,
+                home=site.url,
             )
             (root / "job.json").write_text(job.model_dump_json())
             process = await asyncio.create_subprocess_exec(
                 self._python, "-m", "foundry.core", "crawl", str(root / "job.json"),
-                cwd=tree, env={"PYTHONPATH": str(tree / "src"), "PATH": "/usr/bin:/bin"},
+                cwd=tree, env={"PYTHONPATH": KIT, "PATH": "/usr/bin:/bin"},
                 stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE,
             )  # fmt: skip
             try:
@@ -149,11 +166,11 @@ class Crawls:
             if process.returncode != 0 or not job.stats.exists():
                 tail = stderr.decode(errors="replace")[-STDERR_TAIL:]
                 crashed = CrawlStats(crashes=1, examples=(tail,))
-                return models.CrawlReport(listings=(), crawl=models.Crawl.of(crashed, previous_valid))
+                return models.CrawlReport(listings=(), crawl=models.Crawl.of(crashed, previous_valid, job))
             stats = CrawlStats.model_validate_json(job.stats.read_text())
             lines = job.listings.read_text().splitlines() if job.listings.exists() else []
             listings = tuple(Listing.model_validate_json(line) for line in lines)
-            return models.CrawlReport(listings=listings, crawl=models.Crawl.of(stats, previous_valid))
+            return models.CrawlReport(listings=listings, crawl=models.Crawl.of(stats, previous_valid, job))
 
 
 BROWSER_HEADERS = {

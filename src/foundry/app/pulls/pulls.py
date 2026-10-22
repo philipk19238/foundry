@@ -74,7 +74,7 @@ class Proposals:
             return outcomes.Rejection(reason=f"the replay fails for {', '.join(failed)}")
         await self._timeline.log(lease.run_id, EventKind.STATUS, f"Replays pass for {', '.join(replays)}.")
         access = await self._accounts.access(lease.source_id)
-        staging = await self._crawls.live(checkout, submission.site, access, 0)
+        staging = await self._crawls.live(checkout, lease.source_id, submission.site, access, 0)
         await self._timeline.log(
             lease.run_id, EventKind.STATUS, f"Staging crawl: {staging.crawl.verdict}, {staging.crawl.valid} listings."
         )

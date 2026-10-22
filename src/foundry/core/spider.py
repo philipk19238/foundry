@@ -2,21 +2,29 @@
 detail pages and yields `Listing`s. Signing in, retries, throttling, replay and validation are here, the same for
 every portal, so a spider holds only what is particular to its site or platform."""
 
+import asyncio
+import base64
 from collections.abc import Iterable, Iterator
 from pathlib import Path
 from types import ModuleType
 from typing import TextIO
+from urllib.parse import urlsplit
 
 import scrapy
+from playwright.async_api import Browser, Page, Playwright, async_playwright
+from playwright.async_api import Error as PlaywrightError
 from pydantic import ValidationError
+from scrapy import signals
 from scrapy.crawler import Crawler
-from scrapy.exceptions import IgnoreRequest
-from scrapy.http import Request, Response, TextResponse
+from scrapy.exceptions import IgnoreRequest, NotConfigured
+from scrapy.http import Headers, Request, Response, TextResponse
+from scrapy.responsetypes import responsetypes
 from scrapy.statscollectors import StatsCollector
 
 from foundry.core.models import Fixture, Listing, Session
 
 LOGGED_OUT = "foundry/logged_out"
+REFUSED = "foundry/refused"
 VALID = "foundry/valid"
 INVALID = "foundry/invalid"
 UNMATCHED = "foundry/unmatched"
@@ -82,8 +90,95 @@ class SessionMiddleware:
         spider = self._crawler.spider
         if isinstance(spider, PortalSpider) and spider.logged_out(response) and self._crawler.stats is not None:
             self._crawler.stats.set_value(LOGGED_OUT, True)
+            if self._crawler.stats.get_value(REFUSED) is None:
+                self._crawler.stats.set_value(REFUSED, f"{response.status} at {response.url}")
             raise IgnoreRequest(f"logged out at {response.url}")
         return response
+
+
+FETCH = """async ({url, method, headers, body}) => {
+  const response = await fetch(url, {
+    method, headers, credentials: "include",
+    body: body === null ? undefined : Uint8Array.from(atob(body), (c) => c.charCodeAt(0)),
+  });
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return {url: response.url, status: response.status, headers: [...response.headers], body: btoa(binary)};
+}"""
+DROPPED = {"content-encoding", "content-length", "transfer-encoding"}
+
+
+class BrowserMiddleware:
+    """Sends every request from inside a stealth browser, when the crawl was given one: a page on the portal passes
+    its bot checks once, then each request runs as that page's `fetch`, with the browser's address, fingerprint and
+    cookies. The response is what plain HTTP would have returned, so spiders and their fixtures don't change. A
+    request the portal page may not fetch (another site without CORS) runs from a page on its own site."""
+
+    def __init__(self, cdp_url: str, home: str, session: Session | None) -> None:
+        self._cdp_url = cdp_url
+        self._home = home
+        self._session = session
+        self._playwright: Playwright | None = None
+        self._browser: Browser | None = None
+        self._pages: dict[str, Page] = {}
+        self._lock = asyncio.Lock()
+
+    @classmethod
+    def from_crawler(cls, crawler: Crawler) -> "BrowserMiddleware":
+        cdp_url = crawler.settings.get("FOUNDRY_BROWSER")
+        if not cdp_url:
+            raise NotConfigured("no browser for this crawl")
+        raw = crawler.settings.get("FOUNDRY_SESSION")
+        middleware = cls(
+            cdp_url, crawler.settings.get("FOUNDRY_HOME"), Session.model_validate_json(raw) if raw else None
+        )
+        crawler.signals.connect(middleware.close, signal=signals.spider_closed)
+        return middleware
+
+    async def process_request(self, request: Request) -> Response:
+        sent = {
+            "url": request.url,
+            "method": request.method,
+            "headers": {key: value for key, value in request.headers.to_unicode_dict().items()
+                        if key.lower() not in {"cookie", "user-agent", "accept-encoding"}},
+            "body": base64.b64encode(request.body).decode() if request.body else None,
+        }  # fmt: skip
+        try:
+            got = await (await self._page(self._home)).evaluate(FETCH, sent)
+        except PlaywrightError:
+            got = await (await self._page(request.url)).evaluate(FETCH, sent)
+        headers = Headers([(key, value) for key, value in got["headers"] if key.lower() not in DROPPED])
+        body = base64.b64decode(got["body"])
+        kind = responsetypes.from_args(headers=headers, url=got["url"], body=body)
+        return kind(url=got["url"], status=got["status"], headers=headers, body=body, request=request)
+
+    async def _page(self, url: str) -> Page:
+        """The page fetches run from for `url`'s site, opened on first use and kept for the crawl."""
+        site = "{0.scheme}://{0.netloc}".format(urlsplit(url))
+        async with self._lock:
+            if site not in self._pages:
+                context = (await self._connected()).contexts[0]
+                page = await context.new_page()
+                await page.goto(url if url == self._home else f"{site}/", wait_until="load")
+                self._pages[site] = page
+            return self._pages[site]
+
+    async def _connected(self) -> Browser:
+        if self._browser is None:
+            self._playwright = await async_playwright().start()
+            self._browser = await self._playwright.chromium.connect_over_cdp(self._cdp_url)
+            if self._session is not None and self._session.cookies:
+                await self._browser.contexts[0].add_cookies(
+                    [cookie.model_dump(by_alias=True) for cookie in self._session.cookies]
+                )
+        return self._browser
+
+    async def close(self) -> None:
+        if self._browser is not None:
+            await self._browser.close()
+        if self._playwright is not None:
+            await self._playwright.stop()
 
 
 class ReplayMiddleware:

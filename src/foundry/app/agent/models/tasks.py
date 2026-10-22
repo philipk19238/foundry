@@ -33,6 +33,8 @@ class Heal(BaseModel, frozen=True):
         seen = (
             f"valid listings {crawl.valid} (the last healthy crawl found {crawl.previous_valid}), "
             f"invalid {crawl.invalid}, crashed {crawl.crashed}"
+            + (f", turned away with {crawl.refused}" if crawl.refused else "")
+            + (" even from a stealth browser" if crawl.browser else "")
         )
         errors = "\n".join(crawl.errors) or "(none)"
         return (

@@ -28,6 +28,15 @@ class Browsers:
         finally:
             await self._api.close(browser)
 
+    @contextlib.asynccontextmanager
+    async def bare(self, source_id: uuid.UUID) -> AsyncGenerator[models.Browser, None]:
+        """A browser with no profile, for one crawl, deleted afterwards."""
+        browser = await self._api.open_bare(source_id)
+        try:
+            yield browser
+        finally:
+            await self._api.close(browser)
+
     async def session(self, browser: models.Browser, headers: dict[str, str]) -> Session:
         async with async_playwright() as playwright:
             connected = await playwright.chromium.connect_over_cdp(browser.cdp_url)

@@ -16,7 +16,10 @@
     <div class="result {{ crawl.verdict }}">
       <b class="num">{{ crawl.valid }}</b> listings found{% if crawl.invalid %}, <span class="num">{{ crawl.invalid }}</span> rejected{% endif %}{% if crawl.crashed %}, and the scrape crashed{% endif %}.
       <span class="muted">Tested v{{ trial.scraper.version }} on {{ tried.finished.finished_at.strftime("%b %d at %H:%M") }}.</span>
-      {% if crawl.verdict == "relogin" %}<span class="warn">The portal asked to sign in, so the test saw nothing. Ask the agent to sign in again.</span>{% elif crawl.verdict == "heal" %}<span class="warn">The scraper doesn't work on the live portal. Request changes to have the agent fix it.</span>{% endif %}
+      {% if crawl.browser %}<span class="muted">The portal turned plain requests away, so this ran from a stealth browser.</span>{% endif %}
+      {% if crawl.verdict == "relogin" %}<span class="warn">The portal turned the scraper away{% if crawl.refused %} ({{ crawl.refused }}){% endif %} although it sent the saved sign-in. Ask the agent to sign in again.</span>
+      {% elif crawl.verdict == "heal" and crawl.refused %}<span class="warn">The portal turned the scraper away ({{ crawl.refused }}){% if crawl.browser %}, even from a stealth browser{% endif %}. Getting past it is the scraper's job: ask the agent to fix it.</span>
+      {% elif crawl.verdict == "heal" %}<span class="warn">The scraper doesn't work on the live portal. Ask the agent to fix it.</span>{% endif %}
       {% if trial.scraper.version != newest.version %}<span class="warn">That was an older version; test again for v{{ newest.version }}.</span>{% endif %}
     </div>
     {% for error in crawl.errors %}<pre class="small err">{{ error }}</pre>{% endfor %}
@@ -40,6 +43,12 @@
       <li class="empty">The scrape found no listings.</li>
       {% endfor %}
     </ul>
+    {% if user.is_admin and progress.agent %}
+    <form class="changes" method="post" action="/sources/{{ source.id }}/test/changes">
+      <textarea name="text" rows="3" required placeholder="What should change? The agent gets this test's results with your note."></textarea>
+      <button class="btn">Ask the agent for changes</button>
+    </form>
+    {% endif %}
   {% elif tried.finished %}
     <p class="empty">The last test ended without results: {{ tried.finished.summary or tried.finished.status }}.</p>
   {% else %}

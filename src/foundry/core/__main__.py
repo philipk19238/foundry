@@ -33,6 +33,8 @@ async def crawl(job: CrawlJob) -> None:
     middlewares = {"foundry.core.spider.SessionMiddleware": 500}
     if job.fixtures is not None:
         middlewares["foundry.core.spider.ReplayMiddleware"] = 950
+    if job.browser is not None:
+        middlewares["foundry.core.spider.BrowserMiddleware"] = 960
     settings = Settings(
         {
             "TWISTED_REACTOR_ENABLED": False,
@@ -42,6 +44,8 @@ async def crawl(job: CrawlJob) -> None:
             "FOUNDRY_LISTINGS": str(job.listings),
             "FOUNDRY_SESSION": job.session.model_dump_json() if job.session is not None else "",
             "FOUNDRY_CREDENTIALS": job.credentials,
+            "FOUNDRY_BROWSER": job.browser or "",
+            "FOUNDRY_HOME": job.home,
             "FOUNDRY_FIXTURES": [fixture.model_dump() for fixture in job.fixtures or []],
             "LOG_LEVEL": "INFO",
         }
@@ -56,6 +60,7 @@ async def crawl(job: CrawlJob) -> None:
         valid=stats.get(spider.VALID, 0),
         invalid=stats.get(spider.INVALID, 0),
         logged_out=stats.get(spider.LOGGED_OUT, False),
+        refused=stats.get(spider.REFUSED, ""),
         crashes=stats.get(spider.CRASHES, 0) + stats.get("log_count/ERROR", 0),
         examples=tuple(str(value) for key, value in stats.items() if key.startswith(spider.EXAMPLE)),
     )

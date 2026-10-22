@@ -16,7 +16,7 @@ from foundry.app.browser.models import NewCredential
 from foundry.app.catalog.catalog import Catalog, Opportunities
 from foundry.app.db.models.access import CredentialKind
 from foundry.app.db.models.runs import RunKind
-from foundry.app.help.help import HelpQueue
+from foundry.app.help.help import HelpQueue, RunChat
 from foundry.app.progress.progress import Tracker
 from foundry.app.repo.client import GitHubPulls
 from foundry.app.runs.runs import Queue, Timeline
@@ -96,6 +96,19 @@ async def run_test(request: Request, source_id: uuid.UUID, services: Admin) -> R
     if "HX-Request" not in request.headers:
         return RedirectResponse(f"/sources/{source_id}/test", status_code=status.HTTP_303_SEE_OTHER)
     return await test_results(request, source_id, services)
+
+
+@router.post("/{source_id}/test/changes")
+async def request_changes(source_id: uuid.UUID, text: Annotated[str, Form()], services: Admin) -> Response:
+    """Sends the agent a person's request about the latest test, with what the test found, and opens the chat."""
+    user, tracker, chat = await services.aget(UserView, Tracker, RunChat)
+    progress = await tracker.progress(source_id)
+    if progress.agent is None:
+        raise exceptions.NotAllowed("ask for changes to a scraper no agent wrote")
+    tried = await tracker.trials(progress)
+    about = f"\n\n{tried.trial.described}" if tried.trial is not None else ""
+    await chat.say(progress.agent.id, user, text.strip() + about)
+    return RedirectResponse(f"/sources/{source_id}/chat", status_code=status.HTTP_303_SEE_OTHER)
 
 
 @router.get("/{source_id}/code")

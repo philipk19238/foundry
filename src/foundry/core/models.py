@@ -116,7 +116,8 @@ class Access(BaseModel, frozen=True):
 
 class CrawlJob(BaseModel, frozen=True):
     """What the crawl process is told: the spider to run, where to write, and either a session (live) or fixtures
-    (replayed offline)."""
+    (replayed offline). A live crawl given `browser` (a stealth browser's CDP URL) sends every request from it,
+    starting at the portal's page, `home`."""
 
     spider: Path
     arguments: dict[str, str]
@@ -125,6 +126,8 @@ class CrawlJob(BaseModel, frozen=True):
     session: Session | None = None
     credentials: dict[str, str] = {}
     fixtures: list[Fixture] | None = None
+    browser: str | None = None
+    home: str = ""
 
 
 class CrawlStats(BaseModel, frozen=True):
@@ -133,6 +136,7 @@ class CrawlStats(BaseModel, frozen=True):
     valid: int = 0
     invalid: int = 0
     logged_out: bool = False
+    refused: str = ""
     crashes: int = 0
     examples: tuple[str, ...] = ()
 

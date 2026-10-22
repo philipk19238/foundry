@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, TypeAdapter
 from foundry.app.catalog.models import IngestCounts
 from foundry.app.db.models.catalog import ScraperState, SourceStatus
 from foundry.app.db.models.runs import RunKind
-from foundry.core.models import CrawlStats, Fixture, Listing
+from foundry.core.models import CrawlJob, CrawlStats, Fixture, Listing
 
 MAX_HEALS = 3
 FIXTURES = TypeAdapter(list[Fixture])
@@ -66,7 +66,9 @@ class Verdict(enum.StrEnum):
 
 
 class Crawl(BaseModel, frozen=True):
-    """What one crawl saw. `previous_valid` is how many notices the last healthy crawl found."""
+    """What one crawl saw. `previous_valid` is how many notices the last healthy crawl found. `refused` is the first
+    response the portal turned the scraper away with; `signed_in` says whether the crawl sent a saved session, and
+    `browser` whether it ran from a stealth browser."""
 
     auth_failed: bool
     crashed: bool
@@ -74,9 +76,12 @@ class Crawl(BaseModel, frozen=True):
     valid: int
     previous_valid: int
     errors: tuple[str, ...] = ()
+    refused: str = ""
+    signed_in: bool = True
+    browser: bool = False
 
     @classmethod
-    def of(cls, stats: CrawlStats, previous_valid: int) -> "Crawl":
+    def of(cls, stats: CrawlStats, previous_valid: int, job: CrawlJob) -> "Crawl":
         return cls(
             auth_failed=stats.logged_out,
             crashed=stats.crashes > 0,
@@ -84,17 +89,26 @@ class Crawl(BaseModel, frozen=True):
             valid=stats.valid,
             previous_valid=previous_valid,
             errors=stats.examples,
+            refused=stats.refused,
+            signed_in=job.session is not None,
+            browser=job.browser is not None,
         )
 
     @property
     def verdict(self) -> Verdict:
-        """formal/foundry_rules `verdict`. A scraper that used to find notices and now finds none is broken, even
-        with no error: that is what a portal redesign usually looks like."""
-        if self.auth_failed:
+        """formal/foundry_rules `verdict`. A portal that turns away a scraper with no session isn't asking it to
+        sign in: it is blocking the scraper, which is the scraper's to fix. A scraper that used to find notices and
+        now finds none is broken, even with no error: that is what a portal redesign usually looks like."""
+        if self.auth_failed and self.signed_in:
             return Verdict.RELOGIN
-        if self.crashed or self.invalid > 0 or (self.valid == 0 and self.previous_valid > 0):
+        if self.auth_failed or self.crashed or self.invalid > 0 or (self.valid == 0 and self.previous_valid > 0):
             return Verdict.HEAL
         return Verdict.HEALTHY
+
+    @property
+    def blocked(self) -> bool:
+        """The portal turned away a scraper that sent no session, so a stealth browser may get it through."""
+        return self.auth_failed and not self.signed_in and not self.browser
 
 
 class Health(BaseModel, frozen=True):

@@ -308,3 +308,7 @@ main > * { min-width: 0; }
 .more-ways .ask { margin-top: 8px; }
 .record > summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 .record pre { margin-top: 6px; max-height: 480px; overflow: auto; word-break: break-word; }
+.changes { display: grid; gap: 8px; margin-top: 16px; }
+.changes textarea { width: 100%; resize: vertical; padding: 10px 12px; border-radius: 12px; border: 0; background: var(--panel); color: inherit; font: inherit; box-shadow: 0 0 0 1px var(--line); }
+.changes textarea:focus { outline: none; box-shadow: 0 0 0 2px var(--accent, var(--line)); }
+.changes .btn { justify-self: end; }
