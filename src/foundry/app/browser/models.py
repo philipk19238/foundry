@@ -24,6 +24,10 @@ class BrowserApi(Protocol):
 
     async def open(self, source_id: uuid.UUID) -> Browser: ...
 
+    async def open_bare(self, source_id: uuid.UUID) -> Browser:
+        """A browser with no profile, for a crawl: it runs beside an agent's browser on the source's profile."""
+        ...
+
     async def close(self, browser: Browser) -> None: ...
 
 

@@ -66,7 +66,7 @@ class Refresher:
         scraper = await self._versions.current(source.id)
         access = await self._accounts.access(source.id)
         async with self._mirror.tree(scraper.commit) as tree:
-            report = await self._crawls.live(tree, scraper.site, access, source.previous_valid)
+            report = await self._crawls.live(tree, source.id, scraper.site, access, source.previous_valid)
         notices = [ScrapedNotice(source_id=source.id, listing=listing) for listing in report.listings]
         files = {
             notice.notice_id: await self._downloads.fetch(notice.listing, access.session)
@@ -81,7 +81,7 @@ class Refresher:
         await self._mirror.fetch()
         access = await self._accounts.access(scraper.source_id)
         async with self._mirror.tree(scraper.ref) as tree:
-            return await self._crawls.live(tree, scraper.site, access, 0)
+            return await self._crawls.live(tree, scraper.source_id, scraper.site, access, 0)
 
 
 class Jobs:
@@ -328,7 +328,6 @@ def register(registry: svcs.Registry) -> None:
     registry.register_value(PasswordHasher, PasswordHasher())
     registry.register_value(Fernet, Fernet(settings.credentials_key.get_secret_value()))
     registry.register_value(Notifier, KnockNotifier(knock, settings))
-    registry.register_value(Crawls, Crawls())
     match settings.files_storage:
         case "folder":
             registry.register_value(Bucket, FolderBucket(settings))
@@ -340,8 +339,8 @@ def register(registry: svcs.Registry) -> None:
     registry.register_value(Clones, Clones(git, mirror, settings))
     services = (
         Users, Logins, Catalog, Timeline, Leases, Runs, Pauses, RunHistory, RunFeed, HelpQueue, HelpDesk, Browsers,
-        Credentials, Accounts, Workspaces, Narrator, Inbox, Codex, Versions, ScraperHistory, Healths, Downloads,
-        GitHubPulls, Proposals, Agent, Refresher, Opportunities, Tracker, Imports,
+        Crawls, Credentials, Accounts, Workspaces, Narrator, Inbox, Codex, Versions, ScraperHistory, Healths,
+        Downloads, GitHubPulls, Proposals, Agent, Refresher, Opportunities, Tracker, Imports,
     )  # fmt: skip
     for service in services:
         registry.register_factory(service, svcs.aautowire(service))

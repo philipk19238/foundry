@@ -98,6 +98,16 @@ class TrialView(BaseModel):
             return None
         return cls.model_validate(run.stats)
 
+    @property
+    def described(self) -> str:
+        """The test in a line, for the agent reading a person's request about it."""
+        crawl = self.crawl
+        found = f"{crawl.valid} listings, {crawl.invalid} rejected, verdict {crawl.verdict}"
+        refused = f"; the portal turned it away with {crawl.refused}" if crawl.refused else ""
+        browser = ", run from a stealth browser" if crawl.browser else ""
+        errors = "".join(f"\n- {error}" for error in crawl.errors[:3])
+        return f"(About my test scrape of v{self.scraper.version}: {found}{refused}{browser}.){errors}"
+
 
 class TrialState(BaseModel):
     """A source's latest finished test crawl and what it found, and one still running, if one is."""

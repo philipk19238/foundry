@@ -37,6 +37,21 @@ class KernelBrowserApi:
             profile=profile,
         )
 
+    async def open_bare(self, source_id: uuid.UUID) -> models.Browser:
+        browser = await self._kernel.browsers.create(
+            stealth=True,
+            headless=False,
+            timeout_seconds=IDLE_SECONDS,
+            proxy_id=await self.proxy(),
+            tags={"app": "foundry", "source": str(source_id), "use": "crawl"},
+        )
+        return models.Browser(
+            session_id=browser.session_id,
+            cdp_url=browser.cdp_ws_url,
+            live_view_url=browser.browser_live_view_url or "",
+            profile="",
+        )
+
     async def proxy(self) -> str:
         async for proxy in self._kernel.proxies.list():
             if proxy.name == PROXY and proxy.id is not None:
