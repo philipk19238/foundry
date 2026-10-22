@@ -41,6 +41,8 @@ over, finish your step and call `request_help` saying you're pausing for them.
 - Spiders import only `foundry.core` from foundry (Scrapy, pydantic and the standard library are fine).
 - Never put a secret in a spider, its fixtures or a pull request.
 - Prefer the portal's API, then its server HTML; propose browser code only for data no request returns.
+- Send each endpoint only what it needs (`needs`, in `find-the-api`), at a pace it accepts (`delay`, in `live-crawl`),
+  and say both in `submit`.
 
 ## What you deliver
 

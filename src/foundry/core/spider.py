@@ -4,6 +4,7 @@ every portal, so a spider holds only what is particular to its site or platform.
 
 import asyncio
 import base64
+import json
 from collections.abc import Iterable, Iterator
 from pathlib import Path
 from types import ModuleType
@@ -21,8 +22,9 @@ from scrapy.http import Headers, Request, Response, TextResponse
 from scrapy.responsetypes import responsetypes
 from scrapy.statscollectors import StatsCollector
 
-from foundry.core import challenges
+from foundry.core import challenges, pace
 from foundry.core.models import Fixture, Listing, Session
+from foundry.core.pace import Pace
 
 LOGGED_OUT = "foundry/logged_out"
 REFUSED = "foundry/refused"
@@ -58,6 +60,14 @@ class PortalSpider(scrapy.Spider):
         "RETRY_TIMES": 3,
         "HTTPERROR_ALLOW_ALL": True,
     }
+
+    @property
+    def session(self) -> Session | None:
+        """Everything the portal's browser held at the last run or crawl: cookies, each origin's localStorage and
+        sessionStorage, its user agent. `self.session.stored("auth.token")` reads a token the portal's own scripts
+        would send as a header. None when replaying fixtures, so a spider must not need it to parse."""
+        raw = self.settings.get("FOUNDRY_SESSION")
+        return Session.model_validate_json(raw) if raw else None
 
     @property
     def credentials(self) -> dict[str, str]:
@@ -115,6 +125,15 @@ FETCH = """async ({url, method, headers, body}) => {
 }"""
 DROPPED = {"content-encoding", "content-length", "transfer-encoding"}
 SOLVE_TRIES = 3
+RATE_TRIES = 5
+RESTORE = """(() => {
+  const kept = KEPT;
+  for (const [name, store] of [["local", localStorage], ["session", sessionStorage]]) {
+    for (const [key, value] of Object.entries(kept[name][location.origin] || {})) {
+      if (store.getItem(key) === null) store.setItem(key, value);
+    }
+  }
+})();"""
 CHALLENGES_KEPT = 5
 SOLVE_SECONDS = 90.0
 SOLVED_FOR = 5.0
@@ -147,7 +166,13 @@ class BrowserMiddleware:
     watched until the check clears, and sent again. Otherwise it is counted and the request dropped."""
 
     def __init__(self, crawler: Crawler, cdp_url: str, home: str, session: Session | None) -> None:
+        assert crawler.stats is not None
         self._crawler = crawler
+        self._pace = Pace(
+            crawler.settings.getfloat("DOWNLOAD_DELAY"),
+            crawler.settings.getint("CONCURRENT_REQUESTS_PER_DOMAIN"),
+            crawler.stats,
+        )
         self._cdp_url = cdp_url
         self._home = home
         self._session = session
@@ -178,7 +203,7 @@ class BrowserMiddleware:
                      if str(key).lower() not in {"cookie", "user-agent", "accept-encoding"}},
             body=base64.b64encode(request.body).decode() if request.body else None,
         )  # fmt: skip
-        got = await self._fetch(self._home, sent)
+        got = await self._paced(sent)
         solve = request.meta.get("solve", getattr(self._crawler.spider, "solve", False))
         for _ in range(SOLVE_TRIES if solve else 0):
             if not self._challenged(sent, got):
@@ -197,6 +222,18 @@ class BrowserMiddleware:
         body = base64.b64decode(got["body"])
         kind = responsetypes.from_args(headers=headers, url=got["url"], body=body)
         return kind(url=got["url"], status=got["status"], headers=headers, body=body, request=request)
+
+    async def _paced(self, sent: Sent) -> Fetched:
+        """`sent` fetched in the site's turn, and again, slower, while the portal answers with a rate limit."""
+        site = "{0.scheme}://{0.netloc}".format(urlsplit(sent["url"]))
+        for _ in range(RATE_TRIES):
+            async with self._pace.turn(site):
+                got = await self._fetch(self._home, sent)
+            wait = pace.retry_after(got["status"], dict(got["headers"]))
+            if wait is None:
+                return got
+            await asyncio.sleep(self._pace.limited(site, wait))
+        return got
 
     async def _fetch(self, at: str, sent: Sent) -> Fetched:
         """`sent` fetched from the page on `at`'s site, or from one on its own site if that page may not fetch it."""
@@ -234,10 +271,12 @@ class BrowserMiddleware:
         if self._browser is None:
             self._playwright = await async_playwright().start()
             self._browser = await self._playwright.chromium.connect_over_cdp(self._cdp_url)
-            if self._session is not None and self._session.cookies:
-                await self._browser.contexts[0].add_cookies(
-                    [cookie.model_dump(by_alias=True) for cookie in self._session.cookies]
-                )
+            if self._session is not None:
+                context = self._browser.contexts[0]
+                if self._session.cookies:
+                    await context.add_cookies([cookie.model_dump(by_alias=True) for cookie in self._session.cookies])
+                kept = {"local": self._session.local_storage, "session": self._session.session_storage}
+                await context.add_init_script(RESTORE.replace("KEPT", json.dumps(kept)))
         return self._browser
 
     async def close(self) -> None:

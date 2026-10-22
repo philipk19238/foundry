@@ -10,6 +10,8 @@
   until stopped (or `--seconds`), printing the ones that could be the portal's API.
 - `python -m foundry.core fixtures <recording.jsonl> <url part>...`: prints, as fixtures JSON, the recorded
   responses whose URL holds any of the parts.
+- `python -m foundry.core needs <recording.jsonl> <url part> --browser <cdp url>`: which cookies and headers the
+  latest recorded request matching the part needs, by sending it again without each, and where each came from.
 - `python -m foundry.core solve <url> --browser <cdp url>`: opens the URL in that browser and waits (`--seconds`,
   90 by default) for its bot check to clear, saying whether it did and how long it took."""
 
@@ -28,7 +30,7 @@ from scrapy.crawler import AsyncCrawlerRunner
 from scrapy.settings import Settings
 from scrapy.utils.log import configure_logging
 
-from foundry.core import challenges, recorder, spider
+from foundry.core import challenges, pace, recorder, spider
 from foundry.core.models import CrawlJob, CrawlStats, Fixture, Site
 from foundry.core.recorder import Recorder
 from foundry.core.sites import Sites
@@ -76,6 +78,8 @@ async def crawl(job: CrawlJob) -> None:
         logged_out=stats.get(spider.LOGGED_OUT, False),
         refused=stats.get(spider.REFUSED, ""),
         challenged=stats.get(spider.CHALLENGED, 0),
+        rate_limited=stats.get(pace.RATE_LIMITED, 0),
+        slowed_to=stats.get(pace.SLOWED_TO, 0),
         crashes=stats.get(spider.CRASHES, 0) + stats.get("log_count/ERROR", 0),
         examples=tuple(str(value) for key, value in stats.items() if key.startswith(spider.EXAMPLE)),
     )
@@ -114,6 +118,11 @@ async def run(root: Path, site: Site, **job: object) -> bool:
         listings = crawl_job.listings.read_text().splitlines() if crawl_job.listings.exists() else []
     refused = f", refused with {stats.refused}" if stats.refused else ""
     refused += f", {stats.challenged} stopped by bot checks" if stats.challenged else ""
+    refused += (
+        f", rate-limited {stats.rate_limited} times and slowed to {stats.slowed_to:g} s between requests"
+        if stats.rate_limited
+        else ""
+    )
     print(f"{'PASS' if stats.passed else 'FAIL'} {site.key}: {stats.valid} listings, {stats.invalid} invalid, "
           f"{stats.crashes} crashes, logged out {stats.logged_out}{refused}")  # fmt: skip
     for example in stats.examples:
@@ -161,6 +170,10 @@ def main() -> None:
     recording.add_argument("out", type=Path)
     recording.add_argument("--browser", required=True, metavar="CDP_URL")
     recording.add_argument("--seconds", type=float)
+    needing = commands.add_parser("needs")
+    needing.add_argument("recording", type=Path)
+    needing.add_argument("match")
+    needing.add_argument("--browser", required=True, metavar="CDP_URL")
     solving = commands.add_parser("solve")
     solving.add_argument("url")
     solving.add_argument("--browser", required=True, metavar="CDP_URL")
@@ -188,6 +201,8 @@ def main() -> None:
             sys.exit(0 if asyncio.run(live(root, options.key, options.browser)) else 1)
         case "record":
             asyncio.run(Recorder(options.out).record(options.browser, options.seconds))
+        case "needs":
+            asyncio.run(recorder.Needs(options.recording).report(options.match, options.browser))
         case "solve":
             sys.exit(0 if asyncio.run(solve(options.url, options.browser, options.seconds)) else 1)
         case "fixtures":

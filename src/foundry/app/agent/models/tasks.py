@@ -39,7 +39,11 @@ class Heal(BaseModel, frozen=True):
                 if crawl.challenged
                 else ""
             )
-            + (" even from a stealth browser" if crawl.browser else "")
+            + (
+                f", rate-limited {crawl.rate_limited} times and slowed to {crawl.slowed_to:g} s between requests"
+                if crawl.rate_limited
+                else ""
+            )
         )
         errors = "\n".join(crawl.errors) or "(none)"
         return (

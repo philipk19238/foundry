@@ -3,6 +3,7 @@ import uuid
 from collections.abc import AsyncGenerator
 
 from cryptography.fernet import Fernet
+from playwright.async_api import Error as PlaywrightError
 from playwright.async_api import async_playwright
 
 from foundry.app import exceptions
@@ -11,6 +12,8 @@ from foundry.app.core.models import Lease
 from foundry.app.db.db import Sessionmaker, now
 from foundry.app.db.models.access import Credential
 from foundry.core.models import Access, Cookie, Session
+
+PAGE_STATE = "() => [location.origin, Object.fromEntries(Object.entries(sessionStorage)), navigator.userAgent]"
 
 
 class Browsers:
@@ -38,11 +41,32 @@ class Browsers:
             await self._api.close(browser)
 
     async def session(self, browser: models.Browser, headers: dict[str, str]) -> Session:
+        """Everything the browser holds for the portal: cookies and localStorage from Playwright's storage state,
+        each open page's sessionStorage, and its user agent."""
         async with async_playwright() as playwright:
             connected = await playwright.chromium.connect_over_cdp(browser.cdp_url)
             context = connected.contexts[0]
-            cookies = [Cookie.model_validate(cookie) for cookie in await context.cookies()]
-        return Session(cookies=tuple(cookies), headers=headers, captured_at=now())
+            state = await context.storage_state()
+            session_storage: dict[str, dict[str, str]] = {}
+            user_agent = ""
+            for page in context.pages:
+                with contextlib.suppress(PlaywrightError):
+                    origin, kept, agent = await page.evaluate(PAGE_STATE)
+                    if origin != "null" and kept:
+                        session_storage[origin] = kept
+                    user_agent = user_agent or agent
+        return Session(
+            cookies=tuple(Cookie.model_validate(cookie) for cookie in state["cookies"]),
+            headers=headers,
+            local_storage={
+                origin["origin"]: {item["name"]: item["value"] for item in origin["localStorage"]}
+                for origin in state["origins"]
+                if origin["localStorage"]
+            },
+            session_storage=session_storage,
+            user_agent=user_agent,
+            captured_at=now(),
+        )
 
 
 class Credentials:

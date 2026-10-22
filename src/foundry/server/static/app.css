@@ -149,7 +149,7 @@ td { font-variant-numeric: tabular-nums; }
 .c-link.quiet { color: var(--muted); font-weight: 400; font-size: 12.5px; }
 .c-drive { display: grid; gap: 10px; padding: 12px; border-radius: 14px; border: 1px solid color-mix(in srgb, var(--wait) 35%, transparent); background: color-mix(in srgb, var(--wait) 6%, var(--panel)); }
 .c-drive-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 13px; }
-.c-drive-bar a { margin-left: auto; font-size: 12.5px; }
+.c-drive-open { margin-left: auto; display: flex; gap: 6px; }
 .c-drive iframe { width: 100%; aspect-ratio: 16 / 10; border: 1px solid var(--line); border-radius: 10px; background: #000; }
 .c-drive-done { display: flex; gap: 8px; }
 .c-drive-done input { flex: 1; font: inherit; padding: 8px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); }
@@ -312,3 +312,17 @@ main > * { min-width: 0; }
 .changes textarea { width: 100%; resize: vertical; padding: 10px 12px; border-radius: 12px; border: 0; background: var(--panel); color: inherit; font: inherit; box-shadow: 0 0 0 1px var(--line); }
 .changes textarea:focus { outline: none; box-shadow: 0 0 0 2px var(--accent, var(--line)); }
 .changes .btn { justify-self: end; }
+
+/* The conversation with its work log beside it: the log keeps one viewport's height and scrolls on its own. */
+.c-split { --split: min(1180px, calc(100vw - 32px)); width: var(--split); margin-inline: calc((100% - var(--split)) / 2); display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 24px; align-items: start; }
+.c-split > .c-chat { max-width: 760px; }
+.c-log { position: sticky; top: 84px; height: calc(100vh - 100px); max-height: 760px; display: flex; flex-direction: column; min-height: 0; border-radius: 14px; background: var(--panel); box-shadow: 0 0 0 1px var(--line); overflow: hidden; }
+.c-log > header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 12px 14px; font-size: 13px; font-weight: 600; box-shadow: 0 1px 0 var(--line); }
+.c-log > header .muted { font-weight: 400; font-size: 12px; }
+.c-log .timeline { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 8px; align-content: start; }
+.c-log .event pre { font-size: 12px; max-height: 8.6em; overflow: hidden; cursor: pointer; }
+.c-log .event.open pre { max-height: none; }
+@media (max-width: 1000px) {
+  .c-split { --split: 100%; grid-template-columns: minmax(0, 1fr); }
+  .c-log { position: static; height: auto; max-height: 60vh; }
+}
