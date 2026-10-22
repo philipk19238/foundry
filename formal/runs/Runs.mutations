@@ -36,7 +36,7 @@ detects NoSelfSkip
 +     /\ pc[r] \in {"stopping", "restarting"} /\ want[r]
 
 mutation restarts are not counted
-detects AllDone
-cfg Live-AllDone
+detects TypeOK
+cfg Verified
 - /\ want' = [want EXCEPT ![r] = FALSE] /\ restarts' = [restarts EXCEPT ![r] = restarts[r] + 1]
 + /\ want' = [want EXCEPT ![r] = FALSE] /\ restarts' = restarts
