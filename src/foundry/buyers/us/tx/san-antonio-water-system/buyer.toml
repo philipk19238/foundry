@@ -1,0 +1,10 @@
+name = "San Antonio Water System"
+jurisdiction = "San Antonio, Texas"
+
+[[portals]]
+kind = "platform"
+name = "demandstar"
+platform = "demandstar"
+tenant = "23147413-5c5f-43ee-afc8-439678ae08b2"
+url = "https://www.demandstar.com/app/agencies/texas/san-antonio-water-system/procurement-opportunities/23147413-5c5f-43ee-afc8-439678ae08b2/"
+delay = 1
