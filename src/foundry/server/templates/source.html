@@ -6,50 +6,64 @@
     <h1>{{ source.name }}</h1>
     <a class="muted" href="{{ source.url }}" target="_blank" rel="noopener">{{ source.url }} ↗</a>
   </div>
-  <div class="facts">
-    {% with value=source.status %}{% include "_status.html" %}{% endwith %}
-    <span>scraper {% if source.scraper_version %}v{{ source.scraper_version }}{% else %}none{% endif %}</span>
-    <span>{{ source.previous_valid }} listings last crawl</span>
-    {% if proposal %}<a href="https://github.com/{{ repo }}/pull/{{ proposal.pull }}" target="_blank" rel="noopener">v{{ proposal.version }} in review: pull request #{{ proposal.pull }} ↗</a>{% endif %}
-  </div>
+  {% with value=source.status %}{% include "_status.html" %}{% endwith %}
 </section>
 
-{% if user.is_admin %}
-<section class="card row">
-  {% for kind in kinds %}
-  <form method="post" action="/sources/{{ source.id }}/runs"><input type="hidden" name="kind" value="{{ kind }}"><button class="{{ 'primary' if kind == 'refresh' else 'ghost' }}">{{ kind | capitalize }}</button></form>
-  {% endfor %}
-  <code class="small muted">POST /api/sources/{{ source.id }}/refresh</code>
+<p class="lede">
+  {% if not newest %}
+  An agent is building the first scraper for this portal. Follow it in its chat from the runs below.
+  {% elif newest.state == "proposed" %}
+  <b>v{{ newest.version }} is waiting for your review.</b> Try it to see what it finds on the live portal, then merge its pull request.
+  {% if source.scraper_version %}Meanwhile v{{ source.scraper_version }} keeps running.{% endif %}
+  {% else %}
+  <b>Running v{{ source.scraper_version }}.</b> The last crawl found {{ source.previous_valid }} listings.
+  {% endif %}
+</p>
+
+{% if newest %}
+<section class="card stack">
+  <div class="row spread">
+    <div>
+      <div class="eyebrow">{{ "To review" if newest.state == "proposed" else "Running" }}</div>
+      <div class="title">v{{ newest.version }} · <code>{{ newest.site }}</code></div>
+    </div>
+    <div class="row">
+      {% if user.is_admin %}
+      <form method="post" action="/sources/{{ source.id }}/runs"><input type="hidden" name="kind" value="trial">
+        <button>▶ Try it</button></form>
+      {% endif %}
+      <a class="button ghost" href="https://github.com/{{ repo }}/pull/{{ newest.pull }}" target="_blank" rel="noopener">Pull request #{{ newest.pull }} ↗</a>
+      <a class="button ghost" href="/runs/{{ newest.run_id }}">Ask the agent →</a>
+    </div>
+  </div>
+  {% if newest.state == "proposed" %}
+  <ol class="steps small">
+    <li><b>Try it.</b> Crawls the live portal with v{{ newest.version }} and lists every listing it finds, below. Nothing is stored.</li>
+    <li><b>Read the pull request.</b> It says how the scraper gets the data, what the agent checked, and what it can't get yet.</li>
+    <li><b>Merge it on GitHub,</b> or ask the agent for changes in its chat. Once merged, Foundry refreshes this portal with it.</li>
+  </ol>
+  {% endif %}
+  {% if tried.running %}
+  <div class="alert small">{% with value=tried.running.status %}{% include "_status.html" %}{% endwith %} A trial is crawling the portal now. <a href="/runs/{{ tried.running.id }}">Watch it →</a></div>
+  {% endif %}
+</section>
+{% endif %}
+
+{% if newest %}
+<section>
+  <h2>Sample output {% if tried.finished %}<span class="muted small">from the trial of {{ tried.finished.finished_at.strftime("%b %d %H:%M") }} · <a href="/runs/{{ tried.finished.id }}">open it</a></span>{% endif %}</h2>
+  {% if tried.trial %}
+    {% with trial=tried.trial %}{% include "_trial.html" %}{% endwith %}
+  {% elif tried.finished %}
+    <p class="empty">The last trial ended without results: {{ tried.finished.summary or tried.finished.status }}.</p>
+  {% else %}
+    <p class="empty">Not tried yet. Press <b>▶ Try it</b> to crawl the live portal and see every listing it finds.</p>
+  {% endif %}
 </section>
 {% endif %}
 
 <section>
-  <h2>Scrapers</h2>
-  <table>
-    <thead><tr><th>Version</th><th>Site</th><th>State</th><th>Pull request</th><th>Built by</th></tr></thead>
-    <tbody>
-    {% for scraper in scrapers %}
-      <tr>
-        <td>v{{ scraper.version }}{% if scraper.version == source.scraper_version %} <span class="small muted">· running</span>{% endif %}</td>
-        <td><code>{{ scraper.site }}</code></td>
-        <td>{% with value=scraper.state %}{% include "_status.html" %}{% endwith %}</td>
-        <td><a href="https://github.com/{{ repo }}/pull/{{ scraper.pull }}" target="_blank" rel="noopener">#{{ scraper.pull }} ↗</a></td>
-        <td><a href="/runs/{{ scraper.run_id }}">the agent's run →</a></td>
-      </tr>
-    {% else %}
-      <tr><td colspan="5" class="muted">No scraper yet: the onboarding run builds the first one.</td></tr>
-    {% endfor %}
-    </tbody>
-  </table>
-</section>
-
-<section>
-  <h2>Runs</h2>
-  {% include "_runs.html" %}
-</section>
-
-<section>
-  <h2>Notices <span class="muted small">newest first</span></h2>
+  <h2>Stored notices <span class="muted small">newest first · what refreshes with the merged scraper have saved</span></h2>
   {% for notice in notices %}
   <article class="notice">
     <header>
@@ -64,7 +78,56 @@
     </footer>
   </article>
   {% else %}
-  <p class="muted">No notices yet.</p>
+  <p class="empty">Nothing stored yet. Refreshes store notices once a scraper is merged; until then, a trial shows what it would find.</p>
   {% endfor %}
 </section>
+
+<section>
+  <h2>Runs</h2>
+  {% include "_runs.html" %}
+</section>
+
+<section>
+  <h2>Scraper versions</h2>
+  <table>
+    <thead><tr><th>Version</th><th>Site</th><th>State</th><th>Pull request</th><th>Built by</th></tr></thead>
+    <tbody>
+    {% for scraper in scrapers %}
+      <tr>
+        <td>v{{ scraper.version }}{% if scraper.version == source.scraper_version %} <span class="small muted">· running</span>{% endif %}</td>
+        <td><code>{{ scraper.site }}</code></td>
+        <td>{% with value=scraper.state %}{% include "_status.html" %}{% endwith %}</td>
+        <td><a href="https://github.com/{{ repo }}/pull/{{ scraper.pull }}" target="_blank" rel="noopener">#{{ scraper.pull }} ↗</a></td>
+        <td><a href="/runs/{{ scraper.run_id }}">the agent's chat →</a></td>
+      </tr>
+    {% else %}
+      <tr><td colspan="5" class="muted">No scraper yet: the onboarding run builds the first one.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+{% if user.is_admin %}
+<section>
+  <details class="card more">
+    <summary>Other actions</summary>
+    <ul class="actions">
+      {% for kind, what in [
+        ("refresh", "Crawl with the merged scraper and store what is new or changed."),
+        ("heal", "Have an agent fix the scraper when the portal changed and it broke."),
+        ("relogin", "Have an agent sign in again when the saved session expired."),
+        ("review", "Check the pull request now instead of waiting for the next check: picks up a merge or a close."),
+        ("onboard", "Have an agent build the scraper again from scratch."),
+      ] %}
+      <li>
+        <form method="post" action="/sources/{{ source.id }}/runs"><input type="hidden" name="kind" value="{{ kind }}">
+          <button class="ghost">{{ kind | capitalize }}</button></form>
+        <span class="small muted">{{ what }}</span>
+      </li>
+      {% endfor %}
+    </ul>
+    <p class="small muted">Scripts: <code>POST /api/sources/{{ source.id }}/refresh</code> with an API token.</p>
+  </details>
+</section>
+{% endif %}
 {% endblock %}
