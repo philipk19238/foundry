@@ -4,6 +4,83 @@
   "module": "FoundryRules",
   "declarations": [
     {
+      "kind": "inductive",
+      "name": "Foundry.Answer",
+      "type": "Type",
+      "typeHash": "12699277778711304153",
+      "valueHash": null
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.Answer.casesOn",
+      "type": "{motive : Foundry.Answer → Sort u} → (t : Foundry.Answer) → motive Foundry.Answer.through → ((retryAfter : Nat) → (challenged : Bool) → motive (Foundry.Answer.limit retryAfter challenged)) → motive t",
+      "typeHash": "3069659752886061391",
+      "valueHash": "3491279307"
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.Answer.ctorElim",
+      "type": "{motive : Foundry.Answer → Sort u} → (ctorIdx : Nat) → (t : Foundry.Answer) → ctorIdx = t.ctorIdx → Foundry.Answer.ctorElimType ctorIdx → motive t",
+      "typeHash": "16921277601647758571",
+      "valueHash": "2579923525"
+    },
+    {
+      "kind": "constructor",
+      "name": "Foundry.Answer.limit",
+      "type": "Nat → Bool → Foundry.Answer",
+      "typeHash": "16721266459641817955",
+      "valueHash": null
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.Answer.limit.elim",
+      "type": "{motive : Foundry.Answer → Sort u} → (t : Foundry.Answer) → t.ctorIdx = 1 → ((retryAfter : Nat) → (challenged : Bool) → motive (Foundry.Answer.limit retryAfter challenged)) → motive t",
+      "typeHash": "8046616895257424012",
+      "valueHash": "3190290283"
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.Answer.limit.noConfusion",
+      "type": "{P : Sort u} → {retryAfter : Nat} → {challenged : Bool} → {retryAfter' : Nat} → {challenged' : Bool} → Foundry.Answer.limit retryAfter challenged = Foundry.Answer.limit retryAfter' challenged' → (retryAfter = retryAfter' → challenged = challenged' → P) → P",
+      "typeHash": "16871560235771757835",
+      "valueHash": "3499487428"
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.Answer.noConfusion",
+      "type": "{P : Sort u} → {t t' : Foundry.Answer} → t = t' → Foundry.Answer.noConfusionType P t t'",
+      "typeHash": "5764862458285187363",
+      "valueHash": "1940811538"
+    },
+    {
+      "kind": "recursor",
+      "name": "Foundry.Answer.rec",
+      "type": "{motive : Foundry.Answer → Sort u} → motive Foundry.Answer.through → ((retryAfter : Nat) → (challenged : Bool) → motive (Foundry.Answer.limit retryAfter challenged)) → (t : Foundry.Answer) → motive t",
+      "typeHash": "5486795117538689169",
+      "valueHash": null
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.Answer.recOn",
+      "type": "{motive : Foundry.Answer → Sort u} → (t : Foundry.Answer) → motive Foundry.Answer.through → ((retryAfter : Nat) → (challenged : Bool) → motive (Foundry.Answer.limit retryAfter challenged)) → motive t",
+      "typeHash": "3069659752886061391",
+      "valueHash": "3192331970"
+    },
+    {
+      "kind": "constructor",
+      "name": "Foundry.Answer.through",
+      "type": "Foundry.Answer",
+      "typeHash": "17981760212501507346",
+      "valueHash": null
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.Answer.through.elim",
+      "type": "{motive : Foundry.Answer → Sort u} → (t : Foundry.Answer) → t.ctorIdx = 0 → motive Foundry.Answer.through → motive t",
+      "typeHash": "15583862278119208995",
+      "valueHash": "1906601234"
+    },
+    {
       "kind": "definition",
       "name": "Foundry.Bytes",
       "type": "Type",
@@ -485,6 +562,69 @@
       "type": "{motive : Foundry.JobKind → Sort u} → (t : Foundry.JobKind) → t.ctorIdx = 3 → motive Foundry.JobKind.review → motive t",
       "typeHash": "9693490550539191881",
       "valueHash": "1994112981"
+    },
+    {
+      "kind": "inductive",
+      "name": "Foundry.Limited",
+      "type": "Type",
+      "typeHash": "12699277778711304153",
+      "valueHash": null
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.Limited.casesOn",
+      "type": "{motive : Foundry.Limited → Sort u} → (t : Foundry.Limited) → ((pace wait : Nat) → motive { pace := pace, wait := wait }) → motive t",
+      "typeHash": "9557878244020201076",
+      "valueHash": "1192920777"
+    },
+    {
+      "kind": "constructor",
+      "name": "Foundry.Limited.mk",
+      "type": "Nat → Nat → Foundry.Limited",
+      "typeHash": "17439174565635873516",
+      "valueHash": null
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.Limited.mk.noConfusion",
+      "type": "{P : Sort u} → {pace wait pace' wait' : Nat} → { pace := pace, wait := wait } = { pace := pace', wait := wait' } → (pace = pace' → wait = wait' → P) → P",
+      "typeHash": "2803072078118385664",
+      "valueHash": "3365079162"
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.Limited.noConfusion",
+      "type": "{P : Sort u} → {t t' : Foundry.Limited} → t = t' → Foundry.Limited.noConfusionType P t t'",
+      "typeHash": "14857094639038297264",
+      "valueHash": "3299862000"
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.Limited.pace",
+      "type": "Foundry.Limited → Nat",
+      "typeHash": "2888922706794543303",
+      "valueHash": "2854504425"
+    },
+    {
+      "kind": "recursor",
+      "name": "Foundry.Limited.rec",
+      "type": "{motive : Foundry.Limited → Sort u} → ((pace wait : Nat) → motive { pace := pace, wait := wait }) → (t : Foundry.Limited) → motive t",
+      "typeHash": "11315542466740505110",
+      "valueHash": null
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.Limited.recOn",
+      "type": "{motive : Foundry.Limited → Sort u} → (t : Foundry.Limited) → ((pace wait : Nat) → motive { pace := pace, wait := wait }) → motive t",
+      "typeHash": "9557878244020201076",
+      "valueHash": "713785113"
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.Limited.wait",
+      "type": "Foundry.Limited → Nat",
+      "typeHash": "2888922706794543303",
+      "valueHash": "3929373371"
     },
     {
       "kind": "inductive",
@@ -1656,17 +1796,10 @@
       "valueHash": "3740349451"
     },
     {
-      "kind": "definition",
-      "name": "Foundry.ease45",
-      "type": "Nat → Nat",
-      "typeHash": "17447477262996007675",
-      "valueHash": "3828392278"
-    },
-    {
       "kind": "theorem",
       "name": "Foundry.eases_to_base",
-      "type": "∀ (base d : Nat), 1 ≤ base → d ≤ Foundry.slowest → d * 4 ^ 50 ≤ base * 5 ^ 50",
-      "typeHash": "12679285131616299624",
+      "type": "∀ (base d : Nat), 1 ≤ base → d ≤ Foundry.slowest → d ≤ base * 2 ^ 16",
+      "typeHash": "10285584640581102847",
       "valueHash": null
     },
     {
@@ -1730,7 +1863,14 @@
       "name": "Foundry.firstSlowdown",
       "type": "Nat",
       "typeHash": "6264036810724301818",
-      "valueHash": "3960241369"
+      "valueHash": "1395967300"
+    },
+    {
+      "kind": "theorem",
+      "name": "Foundry.first_limit_waits_first",
+      "type": "(Foundry.limited 0 0 0).wait = Foundry.firstSlowdown ∧ (Foundry.limited 0 0 0).pace = Foundry.firstSlowdown",
+      "typeHash": "15026201117564538891",
+      "valueHash": null
     },
     {
       "kind": "definition",
@@ -1738,6 +1878,27 @@
       "type": "Bool → String",
       "typeHash": "6466416263324806704",
       "valueHash": "350758478"
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.half",
+      "type": "Nat → Nat",
+      "typeHash": "17447477262996007675",
+      "valueHash": "2940808718"
+    },
+    {
+      "kind": "theorem",
+      "name": "Foundry.halves",
+      "type": "∀ (base n d : Nat), base ≤ d → Foundry.paceRun Foundry.half base d (List.replicate n Foundry.PaceEvent.ok) = max base (d / 2 ^ n)",
+      "typeHash": "16773207374320972206",
+      "valueHash": null
+    },
+    {
+      "kind": "theorem",
+      "name": "Foundry.halves_back_to_base",
+      "type": "∀ (base d : Nat), base ≤ d → d ≤ Foundry.slowest → Foundry.paceRun Foundry.half base d (List.replicate 16 Foundry.PaceEvent.ok) = base",
+      "typeHash": "3713206175999087919",
+      "valueHash": null
     },
     {
       "kind": "definition",
@@ -1853,6 +2014,20 @@
     },
     {
       "kind": "definition",
+      "name": "Foundry.instBEqAnswer",
+      "type": "BEq Foundry.Answer",
+      "typeHash": "8178503810418444418",
+      "valueHash": null
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.instBEqAnswer.beq",
+      "type": "Foundry.Answer → Foundry.Answer → Bool",
+      "typeHash": "4721494831046842718",
+      "valueHash": "2200761459"
+    },
+    {
+      "kind": "definition",
       "name": "Foundry.instBEqDisk",
       "type": "BEq Foundry.Disk",
       "typeHash": "7236161819973406145",
@@ -1878,6 +2053,20 @@
       "type": "Foundry.FileLine → Foundry.FileLine → Bool",
       "typeHash": "14966607164756018688",
       "valueHash": "3422249195"
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.instBEqLimited",
+      "type": "BEq Foundry.Limited",
+      "typeHash": "17329811298059820237",
+      "valueHash": null
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.instBEqLimited.beq",
+      "type": "Foundry.Limited → Foundry.Limited → Bool",
+      "typeHash": "11796898786858168376",
+      "valueHash": "526105090"
     },
     {
       "kind": "definition",
@@ -2091,6 +2280,20 @@
     },
     {
       "kind": "definition",
+      "name": "Foundry.instReprAnswer",
+      "type": "Repr Foundry.Answer",
+      "typeHash": "6757253618803889933",
+      "valueHash": null
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.instReprAnswer.repr",
+      "type": "Foundry.Answer → Nat → Std.Format",
+      "typeHash": "14162731356686521426",
+      "valueHash": "1395917230"
+    },
+    {
+      "kind": "definition",
       "name": "Foundry.instReprChange",
       "type": "Repr Foundry.Change",
       "typeHash": "10356305266250369286",
@@ -2172,6 +2375,20 @@
       "type": "Foundry.JobKind → Nat → Std.Format",
       "typeHash": "7537857667432687240",
       "valueHash": "1808503752"
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.instReprLimited",
+      "type": "Repr Foundry.Limited",
+      "typeHash": "11308721924457327921",
+      "valueHash": null
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.instReprLimited.repr",
+      "type": "Foundry.Limited → Nat → Std.Format",
+      "typeHash": "13145909004817916233",
+      "valueHash": "3492590666"
     },
     {
       "kind": "definition",
@@ -2336,37 +2553,58 @@
     },
     {
       "kind": "definition",
-      "name": "Foundry.limited",
-      "type": "Nat → Nat → Nat",
-      "typeHash": "14411757625133426283",
-      "valueHash": "4230859647"
+      "name": "Foundry.limitCases",
+      "type": "List (Nat × Nat × Nat)",
+      "typeHash": "5689720433151359187",
+      "valueHash": "1751440743"
     },
     {
       "kind": "definition",
-      "name": "Foundry.limitedFixed",
-      "type": "Nat → Nat → Nat",
-      "typeHash": "14411757625133426283",
-      "valueHash": "2588125889"
+      "name": "Foundry.limited",
+      "type": "Nat → Nat → Nat → Foundry.Limited",
+      "typeHash": "16344545241782789410",
+      "valueHash": "2565400758"
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.limitedOr",
+      "type": "Nat → Nat",
+      "typeHash": "17447477262996007675",
+      "valueHash": "3741110980"
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.limitedPreFix",
+      "type": "Nat → Nat",
+      "typeHash": "17447477262996007675",
+      "valueHash": "1579805568"
     },
     {
       "kind": "theorem",
-      "name": "Foundry.limitedFixed_at_least_first",
-      "type": "∀ (d ra : Nat), Foundry.firstSlowdown ≤ Foundry.limitedFixed d ra",
-      "typeHash": "17094956692298943605",
+      "name": "Foundry.limited_at_least_first",
+      "type": "∀ (base d ra : Nat), Foundry.firstSlowdown ≤ (Foundry.limited base d ra).pace",
+      "typeHash": "10982655607018491511",
       "valueHash": null
     },
     {
       "kind": "theorem",
-      "name": "Foundry.limitedFixed_doubles",
-      "type": "∀ (d ra : Nat), Foundry.firstSlowdown ≤ d * 2 → d * 2 ≤ Foundry.slowest → d * 2 ≤ Foundry.limitedFixed d ra",
-      "typeHash": "3725311330603377540",
+      "name": "Foundry.limited_doubles",
+      "type": "∀ (base d ra : Nat), d * 2 ≤ Foundry.slowest → d * 2 ≤ (Foundry.limited base d ra).pace",
+      "typeHash": "1923071977996377206",
       "valueHash": null
     },
     {
       "kind": "theorem",
-      "name": "Foundry.limited_le_slowest",
-      "type": "∀ (d ra : Nat), Foundry.limited d ra ≤ Foundry.slowest",
-      "typeHash": "17184402558117060337",
+      "name": "Foundry.limited_pace_ignores_retry_after",
+      "type": "∀ (base d ra : Nat), (Foundry.limited base d ra).pace = (Foundry.limited base d 0).pace",
+      "typeHash": "11003891519136450300",
+      "valueHash": null
+    },
+    {
+      "kind": "theorem",
+      "name": "Foundry.limited_wait_le",
+      "type": "∀ (base d ra : Nat), (Foundry.limited base d ra).wait ≤ max base Foundry.slowest",
+      "typeHash": "16107985000156117234",
       "valueHash": null
     },
     {
@@ -2553,9 +2791,23 @@
     },
     {
       "kind": "theorem",
-      "name": "Foundry.one_second_base_needs_19",
-      "type": "Foundry.slowest * 4 ^ 19 ≤ 1000 * 5 ^ 19 ∧ ¬Foundry.slowest * 4 ^ 18 ≤ 1000 * 5 ^ 18",
-      "typeHash": "15188578903621228338",
+      "name": "Foundry.old_or_quiet_spell_below_first",
+      "type": "Foundry.limitedOr (Foundry.paceRun Foundry.half 0 0 [Foundry.PaceEvent.limit 0, Foundry.PaceEvent.ok, Foundry.PaceEvent.ok]) < Foundry.firstSlowdown",
+      "typeHash": "5515786560674288632",
+      "valueHash": null
+    },
+    {
+      "kind": "theorem",
+      "name": "Foundry.one_ms_base_needs_16",
+      "type": "¬Foundry.slowest ≤ 1 * 2 ^ 15",
+      "typeHash": "1534416155251993166",
+      "valueHash": null
+    },
+    {
+      "kind": "theorem",
+      "name": "Foundry.one_second_base_needs_6",
+      "type": "Foundry.slowest ≤ 1000 * 2 ^ 6 ∧ ¬Foundry.slowest ≤ 1000 * 2 ^ 5",
+      "typeHash": "2087992025078957425",
       "valueHash": null
     },
     {
@@ -2612,7 +2864,7 @@
       "name": "Foundry.paceCases",
       "type": "List (Nat × List Foundry.PaceEvent)",
       "typeHash": "13666310290578904897",
-      "valueHash": "2376774239"
+      "valueHash": "3902945559"
     },
     {
       "kind": "definition",
@@ -2626,13 +2878,13 @@
       "name": "Foundry.paceStep",
       "type": "(Nat → Nat) → Nat → Nat → Foundry.PaceEvent → Nat",
       "typeHash": "8275919801820812248",
-      "valueHash": "3638017606"
+      "valueHash": "615709811"
     },
     {
       "kind": "theorem",
       "name": "Foundry.paceStep_in_range",
-      "type": "∀ (ease : Nat → Nat), (∀ (x : Nat), ease x ≤ x) → ∀ (base d : Nat), base ≤ Foundry.slowest → base ≤ d ∧ d ≤ Foundry.slowest → ∀ (e : Foundry.PaceEvent), base ≤ Foundry.paceStep ease base d e ∧ Foundry.paceStep ease base d e ≤ Foundry.slowest",
-      "typeHash": "1261543237618820585",
+      "type": "∀ (ease : Nat → Nat), (∀ (x : Nat), ease x ≤ x) → ∀ (base d : Nat), base ≤ d ∧ d ≤ max base Foundry.slowest → ∀ (e : Foundry.PaceEvent), base ≤ Foundry.paceStep ease base d e ∧ Foundry.paceStep ease base d e ≤ max base Foundry.slowest",
+      "typeHash": "7916274042691792952",
       "valueHash": null
     },
     {
@@ -2640,14 +2892,21 @@
       "name": "Foundry.paceVectors",
       "type": "List String",
       "typeHash": "2639935575810947993",
-      "valueHash": "264016321"
+      "valueHash": "607288810"
     },
     {
       "kind": "theorem",
       "name": "Foundry.pace_in_range",
-      "type": "∀ (ease : Nat → Nat), (∀ (x : Nat), ease x ≤ x) → ∀ (base : Nat), base ≤ Foundry.slowest → ∀ (es : List Foundry.PaceEvent), base ≤ Foundry.paceRun ease base base es ∧ Foundry.paceRun ease base base es ≤ Foundry.slowest",
-      "typeHash": "14063717607594248767",
+      "type": "∀ (ease : Nat → Nat), (∀ (x : Nat), ease x ≤ x) → ∀ (base : Nat) (es : List Foundry.PaceEvent), base ≤ Foundry.paceRun ease base base es ∧ Foundry.paceRun ease base base es ≤ max base Foundry.slowest",
+      "typeHash": "2748301100370857767",
       "valueHash": null
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.paced",
+      "type": "Bool → Bool → Nat → Nat → List Foundry.Answer → List Foundry.PaceEvent",
+      "typeHash": "8931341883550286745",
+      "valueHash": "3502453097"
     },
     {
       "kind": "definition",
@@ -2658,10 +2917,17 @@
     },
     {
       "kind": "theorem",
-      "name": "Foundry.quiet_spell_limits_below_first",
-      "type": "Foundry.paceRun Foundry.ease45 0 0 [Foundry.PaceEvent.limit 0, Foundry.PaceEvent.ok, Foundry.PaceEvent.ok, Foundry.PaceEvent.ok, Foundry.PaceEvent.ok, Foundry.PaceEvent.limit 0] < Foundry.firstSlowdown",
-      "typeHash": "8452756184615590915",
+      "name": "Foundry.pre_fix_slow_base_limited_below_base",
+      "type": "Foundry.limitedPreFix 90000 < 90000",
+      "typeHash": "15588325826821013465",
       "valueHash": null
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.rateTries",
+      "type": "Nat",
+      "typeHash": "6264036810724301818",
+      "valueHash": "4112022521"
     },
     {
       "kind": "definition",
@@ -2704,6 +2970,13 @@
       "type": "Foundry.World → Foundry.World",
       "typeHash": "950771699041831302",
       "valueHash": "518130648"
+    },
+    {
+      "kind": "theorem",
+      "name": "Foundry.retry_after_wait_le_slowest",
+      "type": "∀ (base d ra : Nat), 0 < ra → (Foundry.limited base d ra).wait ≤ Foundry.slowest",
+      "typeHash": "7882122914218480449",
+      "valueHash": null
     },
     {
       "kind": "definition",
@@ -2773,13 +3046,6 @@
       "name": "Foundry.skipped_is_reported",
       "type": "∀ (known logUrls : List Nat) (u : Nat), u ∈ known ∨ u ∈ logUrls → u ∈ known ++ logUrls",
       "typeHash": "7473195746001777148",
-      "valueHash": null
-    },
-    {
-      "kind": "theorem",
-      "name": "Foundry.slow_base_limited_below_base",
-      "type": "Foundry.limited 90000 0 < 90000",
-      "typeHash": "8927906589040835924",
       "valueHash": null
     },
     {
@@ -2895,6 +3161,13 @@
       "valueHash": "81663000"
     },
     {
+      "kind": "theorem",
+      "name": "Foundry.unsolvable_check_one_slower_try",
+      "type": "∀ (ra₀ ra₁ : Nat) (rest : List Foundry.Answer), Foundry.paced false false 0 Foundry.rateTries (Foundry.Answer.limit ra₀ true :: Foundry.Answer.limit ra₁ true :: rest) = [Foundry.PaceEvent.limit ra₀]",
+      "typeHash": "8410307453232704887",
+      "valueHash": null
+    },
+    {
       "kind": "definition",
       "name": "Foundry.untitled",
       "type": "Foundry.Listing",
@@ -2988,8 +3261,8 @@
     {
       "kind": "theorem",
       "name": "Foundry.zero_base_never_returns",
-      "type": "∀ (n : Nat), 0 < Foundry.firstSlowdown * 4 ^ n",
-      "typeHash": "15083394668374264405",
+      "type": "∀ (n : Nat), ¬Foundry.firstSlowdown ≤ 0 * 2 ^ n",
+      "typeHash": "4974321771491275427",
       "valueHash": null
     }
   ]

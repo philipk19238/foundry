@@ -161,28 +161,72 @@ detects paceStep_in_range
 - def wentThrough (ease : Nat → Nat) (base d : Nat) : Nat := max base (ease d)
 + def wentThrough (ease : Nat → Nat) (base d : Nat) : Nat := ease d
 
-mutation limited loses the SLOWEST cap
-detects limited_le_slowest
-- def limited (d ra : Nat) : Nat := min slowest (max (if d * 2 = 0 then firstSlowdown else d * 2) ra)
-+ def limited (d ra : Nat) : Nat := max (if d * 2 = 0 then firstSlowdown else d * 2) ra
-
-mutation limited takes Retry-After instead of the larger wait
+mutation limited loses the SLOWEST cap on the pace
 detects paceStep_in_range
-- def limited (d ra : Nat) : Nat := min slowest (max (if d * 2 = 0 then firstSlowdown else d * 2) ra)
-+ def limited (d ra : Nat) : Nat := min slowest (if ra = 0 then (if d * 2 = 0 then firstSlowdown else d * 2) else ra)
+-   let slower := max base (min slowest (max (d * 2) firstSlowdown))
++   let slower := max base (max (d * 2) firstSlowdown)
 
-mutation limited loses the or FIRST_SLOWDOWN
-- def limited (d ra : Nat) : Nat := min slowest (max (if d * 2 = 0 then firstSlowdown else d * 2) ra)
-+ def limited (d ra : Nat) : Nat := min slowest (max (d * 2) ra)
+mutation limited loses the base floor (the pre-fix code)
+detects paceStep_in_range
+-   let slower := max base (min slowest (max (d * 2) firstSlowdown))
++   let slower := min slowest (max (d * 2) firstSlowdown)
+
+mutation the Retry-After wait has no SLOWEST cap
+detects retry_after_wait_le_slowest
+-   ⟨slower, if ra = 0 then slower else min slowest ra⟩
++   ⟨slower, if ra = 0 then slower else ra⟩
+
+mutation a bare limit waits twice the new pace
+detects limited_wait_le
+-   ⟨slower, if ra = 0 then slower else min slowest ra⟩
++   ⟨slower, if ra = 0 then slower * 2 else min slowest ra⟩
+
+mutation the Retry-After becomes the pace
+detects limited_pace_ignores_retry_after
+-   ⟨slower, if ra = 0 then slower else min slowest ra⟩
++   ⟨if ra = 0 then slower else min slowest ra, if ra = 0 then slower else min slowest ra⟩
+
+mutation the Retry-After becomes the pace, below base
+detects paceStep_in_range
+-   ⟨slower, if ra = 0 then slower else min slowest ra⟩
++   ⟨if ra = 0 then slower else ra, if ra = 0 then slower else min slowest ra⟩
+
+mutation limited goes back to the or FIRST_SLOWDOWN
+detects limited_at_least_first
+-   let slower := max base (min slowest (max (d * 2) firstSlowdown))
++   let slower := max base (min slowest (if d * 2 = 0 then firstSlowdown else d * 2))
+
+mutation a limit no longer doubles the pace
+detects limited_doubles
+-   let slower := max base (min slowest (max (d * 2) firstSlowdown))
++   let slower := max base (min slowest firstSlowdown)
 
 mutation easing slows the site down instead
-- def ease45 (d : Nat) : Nat := d * 4 / 5
-+ def ease45 (d : Nat) : Nat := d * 5 / 4
+- def half (d : Nat) : Nat := d / 2
++ def half (d : Nat) : Nat := d * 2
 
-mutation the fixed limit loses its FIRST_SLOWDOWN floor
-detects limitedFixed_at_least_first
-- def limitedFixed (d ra : Nat) : Nat := min slowest (max (max (d * 2) firstSlowdown) ra)
-+ def limitedFixed (d ra : Nat) : Nat := min slowest (max (d * 2) ra)
+mutation successes never ease the pace
+detects halves
+- def half (d : Nat) : Nat := d / 2
++ def half (d : Nat) : Nat := d
+
+mutation _paced hands an unsolvable bot check back after two slower tries
+detects unsolvable_check_one_slower_try
+-     if hurrying || (decide (tries > 0) && !solve && ch) then []
++     if hurrying || (decide (tries > 1) && !solve && ch) then []
+
+mutation _paced hands a bot check back without a slower try
+detects unsolvable_check_one_slower_try
+-     if hurrying || (decide (tries > 0) && !solve && ch) then []
++     if hurrying || (!solve && ch) then []
+
+mutation _paced hands back bot checks the spider can solve
+-     if hurrying || (decide (tries > 0) && !solve && ch) then []
++     if hurrying || (decide (tries > 0) && ch) then []
+
+mutation _paced keeps slowing a stopping crawl
+-     if hurrying || (decide (tries > 0) && !solve && ch) then []
++     if (decide (tries > 0) && !solve && ch) then []
 
 mutation FilesPipeline logs the line before writing the content
 -   | some l, _ => some { w with disk := { w.disk with log := w.disk.log ++ [l] }, pending := none }
