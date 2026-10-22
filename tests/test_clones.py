@@ -36,7 +36,7 @@ def setup(tmp_path: Path) -> tuple[Clones, Path, Path]:
     checkout = asyncio.run(clones.clone(tmp_path, BRANCH))
     (checkout / "spider.py").write_text("agent's spider\n")
     git(checkout, "add", "spider.py")
-    git(checkout, "commit", "--quiet", "-m", "spider")
+    subprocess.run(["git", "commit", "--quiet", "-m", "spider"], cwd=checkout, check=True)  # as the agent does
     return clones, checkout, origin
 
 
@@ -68,6 +68,7 @@ def test_the_runs_commits_reach_only_its_own_branch_and_nothing_it_planted_runs(
     assert git(origin, "show", f"{BRANCH}:spider.py") == "agent's spider"
     assert "draft.py" not in git(origin, "ls-tree", "--name-only", BRANCH).split()
     assert git(origin, "log", "--format=%s", "main") == "kit"
+    assert git(origin, "log", "-1", "--format=%an <%ae>", BRANCH) == settings.git_author
 
 
 def test_foundry_never_pushes_outside_a_run_branch(tmp_path: Path) -> None:
