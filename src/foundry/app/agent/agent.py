@@ -28,6 +28,7 @@ from foundry.app.browser.browser import Accounts, Browsers
 from foundry.app.browser.models import Browser
 from foundry.app.core.models import Lease
 from foundry.app.help.models import Notifier
+from foundry.app.learnings.learnings import Learnings
 from foundry.app.pulls.pulls import Proposals
 from foundry.app.repo.models import BRANCHES
 from foundry.app.repo.repo import CHECKOUT, Clones
@@ -145,6 +146,7 @@ class Workspace:
         self.checkout = folder / CHECKOUT
         self.home = folder / ".codex"
         self.skills = self.home / "skills"
+        self.learnings = self.home / "learnings"
         self.submissions = Submissions(folder)
         self.change_pulls = ChangePulls(folder)
         self.restarts = Restarts(folder)
@@ -218,10 +220,11 @@ class Codex:
     """One Codex thread per run, in the run's checkout, with Kernel's MCP tools and our own. A run that restarted
     goes on in the same thread. People's chat messages reach the running turn as they arrive."""
 
-    def __init__(self, settings: Settings, narrator: Narrator, inbox: Inbox) -> None:
+    def __init__(self, settings: Settings, narrator: Narrator, inbox: Inbox, learnings: Learnings) -> None:
         self._settings = settings
         self._narrator = narrator
         self._inbox = inbox
+        self._learnings = learnings
 
     def _shell(self, browser: Browser, workspace: Workspace) -> str:
         """What the agent's shell commands and its skills find in their environment, as a TOML inline table."""
@@ -229,6 +232,7 @@ class Codex:
             "FOUNDRY_PYTHON": sys.executable,
             "FOUNDRY_BROWSER": browser.cdp_url,
             "FOUNDRY_SKILLS": str(workspace.skills),
+            "FOUNDRY_LEARNINGS": str(workspace.learnings),
         }
         return "{" + ", ".join(f"{key}={json.dumps(value)}" for key, value in values.items()) + "}"
 
@@ -236,7 +240,7 @@ class Codex:
         instructions = (
             (Path(__file__).parent / "prompts" / "agent.md")
             .read_text()
-            .format(session_id=browser.session_id, cdp_url=browser.cdp_url, python=sys.executable)
+            .format(session_id=browser.session_id, learnings=await self._learnings.write_out(workspace.learnings))
         )
         overrides = (
             f"mcp_servers.kernel.url={json.dumps(KERNEL_MCP)}",

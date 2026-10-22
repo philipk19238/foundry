@@ -10,7 +10,7 @@ description: Check the sandbox before starting - foundry's tools are present, th
 Before any portal work:
 
 1. **Foundry's tools.** You should have `check_scraper`, `submit`, `request_help`, `account`, `credentials`,
-   `save_credential`, `propose_change` and `restart` from the `foundry` MCP server. If they're missing, say so once in
+   `save_credential`, `remember`, `propose_change` and `restart` from the `foundry` MCP server. If they're missing, say so once in
    a message, keep working on what doesn't need them, and never claim you submitted. (One run lost them all and only
    found out at the end.)
 2. **Python.** `"$FOUNDRY_PYTHON" -c "import scrapy, playwright, foundry.core"`. Always run Python as
