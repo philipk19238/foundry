@@ -1,0 +1,9 @@
+name = "City of Menifee"
+jurisdiction = "Menifee, California"
+
+[[portals]]
+kind = "platform"
+name = "planetbids"
+platform = "planetbids"
+tenant = "41576"
+url = "https://vendors.planetbids.com/portal/41576/bo/bo-search"
