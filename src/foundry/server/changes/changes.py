@@ -5,17 +5,20 @@ and only while someone listens."""
 
 import asyncio
 import datetime as dt
+import logging
 from collections.abc import Callable
 
 import svcs
 from mcp.server.subscriptions import InMemorySubscriptionBus, ResourceUpdated, ServerEvent
 
 from foundry.app.db.db import now
-from foundry.app.runs.runs import RunChanges
+from foundry.app.runs.changes import RunChanges
 from foundry.server.changes.models import Look
 
 POLL_SECONDS = 1.0
+LOOK_SECONDS = 10.0
 ENDED_WITHIN = dt.timedelta(minutes=10)
+logger = logging.getLogger(__name__)
 
 
 class ListenerBus(InMemorySubscriptionBus):
@@ -51,11 +54,16 @@ class Changes:
             if not self._listeners.someone.is_set():
                 seen = None
                 await self._listeners.someone.wait()
-            async with svcs.Container(registry) as services:
-                runs = await services.aget(RunChanges)
-                marks = {mark.id: mark for mark in await runs.marks(now() - ENDED_WITHIN)}
-                written = await runs.written(seen.after) if seen is not None else {}
-                after = await runs.last_line() if seen is None else max(written.values(), default=seen.after)
+            try:
+                async with asyncio.timeout(LOOK_SECONDS), svcs.Container(registry) as services:
+                    runs = await services.aget(RunChanges)
+                    marks = {mark.id: mark for mark in await runs.marks(now() - ENDED_WITHIN)}
+                    written = await runs.written(seen.after) if seen is not None else {}
+                    after = await runs.last_line() if seen is None else max(written.values(), default=seen.after)
+            except Exception:  # a look that failed (the database away for a moment) is tried again, not the end
+                logger.exception("couldn't look at the runs for MCP listeners")
+                await asyncio.sleep(POLL_SECONDS)
+                continue
             look = Look(marks=marks, after=after)
             if seen is not None:
                 for uri in seen.changed(look, written):

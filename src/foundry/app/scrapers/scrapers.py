@@ -326,9 +326,7 @@ class BronzeUploads:
         done = int(cursor.read_text()) if cursor.exists() else 0
         if not log.exists():
             return
-        with log.open("rb") as entries:
-            entries.seek(done)
-            written = entries.read()
+        written = await asyncio.to_thread(self.since, log, done)
         for line in written.split(b"\n")[:-1]:
             content = HarEntry.model_validate_json(line).response.content
             body = self._folder / content.sha256
@@ -338,6 +336,12 @@ class BronzeUploads:
             body.unlink(missing_ok=True)
             done += len(line) + 1
             cursor.write_text(str(done))
+
+    @staticmethod
+    def since(log: Path, done: int) -> bytes:
+        with log.open("rb") as entries:
+            entries.seek(done)
+            return entries.read()
 
     async def har(self) -> BronzeRecord:
         """The HAR of every response the crawl got, put in the bucket under the SHA-256 of its bytes."""

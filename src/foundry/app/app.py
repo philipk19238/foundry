@@ -37,6 +37,7 @@ from foundry.app.progress.progress import Tracker
 from foundry.app.pulls.pulls import Imports, Proposals, Reviews
 from foundry.app.repo.client import GitHubPulls
 from foundry.app.repo.repo import Clones, Git, Mirror
+from foundry.app.runs.changes import RunChanges
 from foundry.app.runs.models import EventKind, RunView
 from foundry.app.runs.runs import (
     MOST_ATTEMPTS,
@@ -44,7 +45,6 @@ from foundry.app.runs.runs import (
     Leases,
     Pauses,
     Queue,
-    RunChanges,
     RunFeed,
     RunHistory,
     Runs,

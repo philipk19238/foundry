@@ -151,27 +151,6 @@ class RunHistory:
         return models.RunView.model_validate(run) if run is not None else None
 
 
-class RunChanges:
-    """Where runs have got to, compared look by look by whoever tells listeners what changed."""
-
-    def __init__(self, sessionmaker: Sessionmaker) -> None:
-        self._sessionmaker = sessionmaker
-
-    async def marks(self, since: dt.datetime) -> list[models.RunMark]:
-        """Every run that hasn't ended, or ended after `since`."""
-        async with self._sessionmaker() as session:
-            return list(await store.marks(session, since))
-
-    async def written(self, after: int) -> dict[uuid.UUID, int]:
-        """The runs with lines after event `after`, each with its newest line's id."""
-        async with self._sessionmaker() as session:
-            return await store.written(session, after)
-
-    async def last_line(self) -> int:
-        async with self._sessionmaker() as session:
-            return await store.last_event(session)
-
-
 class RunFeed:
     """A run's new lines as they are written, for a page to stream. The server reads the timeline every half second,
     so a browser hears of a line about as soon as it exists; when nothing changes it hears a heartbeat now and then."""
