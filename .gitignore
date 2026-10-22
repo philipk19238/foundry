@@ -6,7 +6,7 @@ __pycache__/
 !.env.example
 *.db
 *.sqlite3
-files/
+/files/
 workspaces/
 .cache/
 .ruff_cache/
