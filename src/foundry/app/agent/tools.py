@@ -20,6 +20,8 @@ from foundry.app.core.models import Lease
 from foundry.app.db.models.access import CredentialKind
 from foundry.app.help import models as help_models
 from foundry.app.help.help import HelpDesk
+from foundry.app.learnings.learnings import Learnings
+from foundry.app.learnings.models import NewLearning
 from foundry.app.pulls.pulls import Proposals
 from foundry.app.repo.client import GitHubPulls
 from foundry.app.repo.repo import Clones, Mirror
@@ -222,3 +224,18 @@ async def save_credential(name: str, kind: CredentialKind, value: str, note: str
 
 if __name__ == "__main__":
     server.run("stdio")
+
+
+@server.tool()
+async def remember(name: str, about: str, description: str, body: str, ctx: Context[svcs.Registry]) -> str:
+    """Save something you learned for every agent after you, as the `learnings` skill says. `name` is a short slug
+    (`planetbids-rate-limit`); saving a name again replaces that learning, so update one rather than add a near copy.
+    `about` is what it applies to: `platform:<name>`, `buyer:<buyer folder>`, or `general`. `description` is the one
+    line the index shows; `body` the learning itself, with why it holds and how to apply it."""
+    try:
+        learning = NewLearning(name=name, about=about, description=description, body=body)
+    except ValidationError as error:
+        return f"Not saved: {error}"
+    async with svcs.Container(ctx.request_context.lifespan_context) as services:
+        await (await services.aget(Learnings)).remember(CONTEXT.run_id, learning)
+    return f"Saved `{name}`. Every run from now on starts with it in its index."

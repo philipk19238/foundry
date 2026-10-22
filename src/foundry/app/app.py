@@ -31,6 +31,7 @@ from foundry.app.files.models import Bucket
 from foundry.app.help.client import KnockNotifier
 from foundry.app.help.help import HelpDesk, HelpQueue, RunChat
 from foundry.app.help.models import Notifier
+from foundry.app.learnings.learnings import Learnings
 from foundry.app.progress.progress import Tracker
 from foundry.app.pulls.pulls import Imports, Proposals, Reviews
 from foundry.app.repo.client import GitHubPulls
@@ -340,7 +341,7 @@ def register(registry: svcs.Registry) -> None:
     services = (
         Users, Logins, Catalog, Timeline, Leases, Runs, Pauses, RunHistory, RunFeed, HelpQueue, HelpDesk, Browsers,
         Crawls, Credentials, Accounts, Workspaces, Narrator, Inbox, Codex, Versions, ScraperHistory, Healths,
-        Downloads, GitHubPulls, Proposals, Agent, Refresher, Opportunities, Tracker, Imports,
+        Downloads, GitHubPulls, Proposals, Agent, Refresher, Opportunities, Tracker, Imports, Learnings,
     )  # fmt: skip
     for service in services:
         registry.register_factory(service, svcs.aautowire(service))
