@@ -1,0 +1,42 @@
+{
+  "name": "Foundry: agent message",
+  "steps": [
+    {
+      "type": "batch",
+      "ref": "batch_1",
+      "settings": {
+        "batch_order": "asc",
+        "batch_window_type": "fixed",
+        "batch_key": "data.run",
+        "batch_window": {
+          "unit": "minutes",
+          "value": 2
+        },
+        "batch_execution_mode": "accumulate",
+        "workflow_version_mode": "pinned"
+      }
+    },
+    {
+      "type": "channel",
+      "template": {
+        "subject": "{% if total_activities == 1 %}The agent wrote: {{ activities[0].text | truncate: 70 }}{% else %}The agent wrote {{ total_activities }} messages{% endif %}",
+        "settings": {
+          "layout_key": "default",
+          "attachment_key": "attachments"
+        },
+        "preview_text": "{{ activities[0].text | truncate: 120 }}",
+        "html_body@": "email_1/html_body.html"
+      },
+      "ref": "email_1",
+      "channel_type": "email",
+      "channel_key": "resend"
+    }
+  ],
+  "trigger_frequency": "every_trigger",
+  "__readonly": {
+    "key": "foundry-agent-message",
+    "active": true,
+    "valid": true
+  },
+  "$schema": "https://schemas.knock.app/cli/workflow.json"
+}

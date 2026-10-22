@@ -1,0 +1,5 @@
+{% for activity in activities %}
+<p style="white-space: pre-wrap; border-left: 3px solid #2f5bea; padding-left: 10px;">{{ activity.text }}</p>
+{% endfor %}
+<p>Reply, or take over the browser, in the run's chat:</p>
+<p><a href="{{ activities[0].url }}">Open the chat →</a></p>
