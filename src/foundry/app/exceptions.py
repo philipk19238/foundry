@@ -123,6 +123,6 @@ class MissingSetting(Error):
         super().__init__(f"Set {what}.")
 
 
-class RunEnded(Error):
+class NoAgent(Error):
     def __init__(self, run_id: uuid.UUID) -> None:
-        super().__init__(f"Run {run_id} has ended, so nobody would read this. Start a new run instead.")
+        super().__init__(f"Run {run_id} is a crawl with no agent in it, so nobody would read this.")

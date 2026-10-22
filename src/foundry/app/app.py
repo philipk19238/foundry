@@ -34,9 +34,9 @@ from foundry.app.help.models import Notifier
 from foundry.app.repo.client import GitHubPulls
 from foundry.app.repo.repo import Clones, Git, Mirror
 from foundry.app.runs.models import EventKind, RunView
-from foundry.app.runs.runs import Leases, Queue, RunHistory, Runs, Timeline
-from foundry.app.scrapers.models import Crawl, Health, Proposal, RefreshReport
-from foundry.app.scrapers.scrapers import Crawls, Downloads, Healths, Versions
+from foundry.app.runs.runs import Leases, Pauses, Queue, RunFeed, RunHistory, Runs, Timeline
+from foundry.app.scrapers.models import Crawl, CrawlReport, Health, Proposal, RefreshReport, ScraperView
+from foundry.app.scrapers.scrapers import Crawls, Downloads, Healths, ScraperHistory, Versions
 from foundry.app.settings import Settings, settings
 
 logger = logging.getLogger(__name__)
@@ -74,6 +74,13 @@ class Refresher:
         health = await self._healths.record(lease, Health(status=source.status, heals=source.heals), report.crawl)
         return RefreshReport(crawl=report.crawl, ingested=ingested, health=health)
 
+    async def trial(self, scraper: ScraperView) -> CrawlReport:
+        """One live crawl with any version, from its own code, storing nothing."""
+        await self._mirror.fetch()
+        session = await self._accounts.session(scraper.source_id)
+        async with self._mirror.tree(scraper.ref) as tree:
+            return await self._crawls.live(tree, scraper.site, session, 0)
+
 
 class Jobs:
     """Carries out a queued run under its source's lease, records how it ended, and queues what comes next: a heal
@@ -93,6 +100,8 @@ class Jobs:
         versions: Versions,
         healths: Healths,
         pulls: GitHubPulls,
+        pauses: Pauses,
+        scrapers: ScraperHistory,
     ) -> None:
         self._runs = runs
         self._history = history
@@ -105,6 +114,8 @@ class Jobs:
         self._versions = versions
         self._healths = healths
         self._pulls = pulls
+        self._pauses = pauses
+        self._scrapers = scrapers
 
     async def carry_out(self, run_id: uuid.UUID) -> None:
         run = await self._history.run(run_id)
@@ -163,6 +174,8 @@ class Jobs:
                 return await self._build(run, lease, tasks.Relogin(url=source.url))
             case RunKind.REVIEW:
                 return await self._review(run, lease)
+            case RunKind.TRIAL:
+                return await self._trial(run)
             case _:
                 assert_never(run.kind)
 
@@ -185,7 +198,7 @@ class Jobs:
                 return None
             case outcomes.Restart(commit=commit):
                 await self._timeline.log(run.id, EventKind.STATUS, f"Restarting on main at {commit[:12]}.")
-                await self._runs.restart(run.id)
+                await self._pauses.restart(run.id)
                 return None
             case outcomes.FreshSession():
                 await self._runs.finish(run.id, RunStatus.SUCCEEDED, "signed in again and saved the session")
@@ -196,6 +209,21 @@ class Jobs:
                 return None
             case _:
                 assert_never(outcome)
+
+    async def _trial(self, run: RunView) -> RunKind | None:
+        """Crawls the portal live with the newest version, merged or still in review, and keeps every listing on the
+        run to read; nothing is stored in the catalog and the source's health is untouched."""
+        scraper = await self._scrapers.newest(run.source_id)
+        report = await self._refresher.trial(scraper)
+        stats: dict[str, JsonValue] = {
+            "scraper": scraper.model_dump(mode="json"),
+            "crawl": report.crawl.model_dump(mode="json"),
+            "listings": [listing.model_dump(mode="json") for listing in report.listings],
+        }
+        crawl = report.crawl
+        summary = f"tried v{scraper.version} ({scraper.state}): {crawl.verdict}, {crawl.valid} listings"
+        await self._runs.finish(run.id, RunStatus.SUCCEEDED, summary, stats)
+        return None
 
     async def _review(self, run: RunView, lease: Lease) -> RunKind | None:
         """Registers a merged scraper and refreshes from it, or hands a closed one to a person."""
@@ -256,8 +284,9 @@ def register(registry: svcs.Registry) -> None:
     registry.register_value(Mirror, mirror)
     registry.register_value(Clones, Clones(git, mirror, settings))
     services = (
-        Users, Logins, Catalog, Timeline, Leases, Runs, RunHistory, HelpQueue, RunChat, HelpDesk, Browsers, Accounts,
-        Workspaces, Narrator, Inbox, Codex, Versions, Healths, Downloads, GitHubPulls, Proposals, Agent, Refresher,
+        Users, Logins, Catalog, Timeline, Leases, Runs, Pauses, RunHistory, RunFeed, HelpQueue, HelpDesk, Browsers,
+        Accounts, Workspaces, Narrator, Inbox, Codex, Versions, ScraperHistory, Healths, Downloads, GitHubPulls,
+        Proposals, Agent, Refresher,
     )  # fmt: skip
     for service in services:
         registry.register_factory(service, svcs.aautowire(service))
@@ -268,3 +297,4 @@ def register_queue(registry: svcs.Registry) -> None:
     """The queue and the jobs it feeds, for processes that registered a dispatcher."""
     registry.register_factory(Queue, svcs.aautowire(Queue))
     registry.register_factory(Jobs, svcs.aautowire(Jobs))
+    registry.register_factory(RunChat, svcs.aautowire(RunChat))

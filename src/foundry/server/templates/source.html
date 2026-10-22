@@ -24,6 +24,26 @@
 {% endif %}
 
 <section>
+  <h2>Scrapers</h2>
+  <table>
+    <thead><tr><th>Version</th><th>Site</th><th>State</th><th>Pull request</th><th>Built by</th></tr></thead>
+    <tbody>
+    {% for scraper in scrapers %}
+      <tr>
+        <td>v{{ scraper.version }}{% if scraper.version == source.scraper_version %} <span class="small muted">· running</span>{% endif %}</td>
+        <td><code>{{ scraper.site }}</code></td>
+        <td>{% with value=scraper.state %}{% include "_status.html" %}{% endwith %}</td>
+        <td><a href="https://github.com/{{ repo }}/pull/{{ scraper.pull }}" target="_blank" rel="noopener">#{{ scraper.pull }} ↗</a></td>
+        <td><a href="/runs/{{ scraper.run_id }}">the agent's run →</a></td>
+      </tr>
+    {% else %}
+      <tr><td colspan="5" class="muted">No scraper yet: the onboarding run builds the first one.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section>
   <h2>Runs</h2>
   {% include "_runs.html" %}
 </section>

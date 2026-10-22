@@ -1,7 +1,16 @@
+import enum
 import uuid
 from pathlib import Path
 
 from pydantic import BaseModel
+
+
+class Start(enum.StrEnum):
+    """How a run's turn begins: on its task, back after a restart onto new code, or reopened by a message."""
+
+    FRESH = "fresh"
+    RESTARTED = "restarted"
+    REOPENED = "reopened"
 
 
 class ToolsContext(BaseModel, frozen=True):

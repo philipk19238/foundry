@@ -15,6 +15,7 @@ class RunKind(enum.StrEnum):
     HEAL = "heal"
     RELOGIN = "relogin"
     REVIEW = "review"
+    TRIAL = "trial"
 
 
 class RunStatus(enum.StrEnum):

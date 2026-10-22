@@ -37,6 +37,11 @@ class RunView(BaseModel):
     finished_at: dt.datetime | None
 
     @property
+    def has_agent(self) -> bool:
+        """Runs an agent talks in: onboarding, healing, signing in again."""
+        return self.kind in (RunKind.ONBOARD, RunKind.HEAL, RunKind.RELOGIN)
+
+    @property
     def is_active(self) -> bool:
         return self.status in (RunStatus.QUEUED, RunStatus.RUNNING, RunStatus.WAITING, RunStatus.RESTARTING)
 
@@ -57,6 +62,14 @@ class EventView(BaseModel):
     def in_chat(self) -> bool:
         """What the chat shows: what the agent said, what people wrote, and the help requests between them."""
         return self.kind in CHAT
+
+
+class FeedUpdate(BaseModel, frozen=True):
+    """One push to a page following a run: its state now, and the lines written since the last push."""
+
+    run: RunView
+    events: list[EventView]
+    after: int
 
 
 class Dispatcher(Protocol):

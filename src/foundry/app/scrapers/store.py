@@ -2,6 +2,7 @@
 
 import datetime as dt
 import uuid
+from collections.abc import Sequence
 
 from sqlalchemy import and_, bindparam, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,6 +24,14 @@ _CURRENT = (
 _PROPOSED = (
     select(Scraper)
     .where(Scraper.source_id == bindparam("source"), Scraper.state == ScraperState.PROPOSED)
+    .order_by(Scraper.version.desc())
+    .limit(1)
+)
+_BUILT_BY = select(Scraper).where(Scraper.run_id == bindparam("run")).order_by(Scraper.version)
+_OF_SOURCE = select(Scraper).where(Scraper.source_id == bindparam("source")).order_by(Scraper.version.desc())
+_NEWEST = (
+    select(Scraper)
+    .where(Scraper.source_id == bindparam("source"), Scraper.state != ScraperState.CLOSED)
     .order_by(Scraper.version.desc())
     .limit(1)
 )
@@ -57,6 +66,19 @@ def _held(lease: Lease) -> dict[str, uuid.UUID | int]:
 async def current(session: AsyncSession, source_id: uuid.UUID) -> Scraper | None:
     """The merged version the source runs."""
     return await session.scalar(_CURRENT, {"source": source_id})
+
+
+async def built_by(session: AsyncSession, run_id: uuid.UUID) -> Sequence[Scraper]:
+    return (await session.scalars(_BUILT_BY, {"run": run_id})).all()
+
+
+async def of_source(session: AsyncSession, source_id: uuid.UUID) -> Sequence[Scraper]:
+    return (await session.scalars(_OF_SOURCE, {"source": source_id})).all()
+
+
+async def newest(session: AsyncSession, source_id: uuid.UUID) -> Scraper | None:
+    """The newest version still in play: merged, or waiting in its pull request."""
+    return await session.scalar(_NEWEST, {"source": source_id})
 
 
 async def proposed(session: AsyncSession, source_id: uuid.UUID) -> Scraper | None:
