@@ -27,7 +27,8 @@ EXAMPLE = "foundry/example/"
 class PortalSpider(scrapy.Spider):
     """The base of every scraper. A subclass sets `name` and `start_urls`, parses listing responses in `parse`
     (yielding detail requests with `callback=self.parse_detail`, and the next page), and yields one `Listing` per
-    opportunity from `parse_detail`. Override `logged_out` when the portal signals a lost session another way.
+    opportunity from `parse_detail`. Override `logged_out` when the portal signals a lost session another way. The
+    signed-in session is sent with every request; `self.credentials` holds the portal's other saved secrets.
 
     A platform spider (`platforms/<name>/spider.py`) serves many buyers: each buyer's `buyer.toml` names its `tenant`,
     which arrives as `self.tenant`."""
@@ -42,6 +43,12 @@ class PortalSpider(scrapy.Spider):
         "RETRY_TIMES": 3,
         "HTTPERROR_ALLOW_ALL": True,
     }
+
+    @property
+    def credentials(self) -> dict[str, str]:
+        """The portal's saved credentials by name, for a spider that signs in itself (an API key in a header, a token
+        exchange, a login form). Empty when replaying fixtures, so a spider must not need them to parse."""
+        return dict(self.settings.getdict("FOUNDRY_CREDENTIALS"))
 
     def parse_detail(self, response: Response) -> Iterable[Listing | Request]:
         raise NotImplementedError

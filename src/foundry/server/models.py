@@ -1,11 +1,17 @@
+import uuid
+
+import svcs
 from pydantic import BaseModel
 
+from foundry.app.auth.models import UserView
 from foundry.app.catalog.models import SourceView
-from foundry.app.db.models.runs import RunKind, RunStatus
+from foundry.app.db.models.runs import RunStatus
 from foundry.app.help.models import HelpView
+from foundry.app.progress.models import Progress, Stage, TrialView
+from foundry.app.progress.progress import Tracker
 from foundry.app.runs.models import EventView, RunView
-from foundry.app.scrapers.models import Crawl, ScraperView
-from foundry.core.models import Listing
+from foundry.app.scrapers.models import ScraperView
+from foundry.app.settings import Settings
 
 
 class NewSource(BaseModel):
@@ -17,39 +23,18 @@ class Onboarding(BaseModel):
     run: RunView
 
 
-class TrialView(BaseModel):
-    """What a trial run found, read back from the stats it finished with."""
+class ScraperSummary(BaseModel):
+    """A portal and its scraper's stage, as the scrapers list shows it."""
 
-    scraper: ScraperView
-    crawl: Crawl
-    listings: list[Listing]
-
-    @classmethod
-    def of(cls, run: RunView) -> "TrialView | None":
-        if run.kind != RunKind.TRIAL or run.stats is None:
-            return None
-        return cls.model_validate(run.stats)
-
-
-class TrialState(BaseModel):
-    """A source's latest finished trial and what it found, and a trial still running, if one is."""
-
-    finished: RunView | None
-    trial: TrialView | None
-    running: RunView | None
-
-    @classmethod
-    def of(cls, finished: RunView | None, runs: list[RunView]) -> "TrialState":
-        running = next((run for run in runs if run.kind == RunKind.TRIAL and run.is_active), None)
-        return cls(finished=finished, trial=None if finished is None else TrialView.of(finished), running=running)
+    source: SourceView
+    stage: Stage
 
 
 class SourceDetail(BaseModel):
-    """A source with every version of its scraper and its recent runs."""
+    """A scraper in full, and its page's address for a person."""
 
-    source: SourceView
-    scrapers: list[ScraperView]
-    runs: list[RunView]
+    progress: Progress
+    url: str
 
 
 class RunDetail(BaseModel):
@@ -72,3 +57,18 @@ class RunLines(BaseModel):
     waiting: bool
     lines: list[EventView]
     after: int
+
+
+class ScraperPage(BaseModel):
+    """What every tab of a scraper's page shows around its own content: who is looking, where the scraper stands,
+    which tab is open, and the repo its pull requests are on."""
+
+    user: UserView
+    progress: Progress
+    tab: str
+    repo: str
+
+    @classmethod
+    async def from_container(cls, container: svcs.Container, source_id: uuid.UUID, tab: str) -> "ScraperPage":
+        user, tracker, settings = await container.aget(UserView, Tracker, Settings)
+        return cls(user=user, progress=await tracker.progress(source_id), tab=tab, repo=settings.repo)

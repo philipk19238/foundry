@@ -1,0 +1,50 @@
+<section class="access">
+  <p class="muted">How the scraper signs in. The agent fills this in when it signs in or makes an account; secrets are sealed and never shown.</p>
+
+  <div class="group">
+    <h3>Login</h3>
+    {% if login %}<p><b>{{ login }}</b>, password saved.</p>{% else %}<p>No login saved. The scraper reads the portal as a visitor.</p>{% endif %}
+  </div>
+
+  <div class="group">
+    <h3>Session</h3>
+    {% if session %}
+    <p>Read from the agent's browser on {{ session.captured_at.strftime("%b %d at %H:%M") }}. Every scrape sends it.</p>
+    {% if session.cookies %}
+    <ul class="chips">{% for cookie in session.cookies %}<li title="{{ cookie.domain }}{{ cookie.path }}"><code>{{ cookie.name }}</code> <span class="muted">{{ cookie.domain }}</span></li>{% endfor %}</ul>
+    {% endif %}
+    {% if session.headers %}<p class="small">Headers: {% for name in session.headers %}<code>{{ name }}</code>{{ ", " if not loop.last }}{% endfor %}</p>{% endif %}
+    {% else %}
+    <p>No session yet.</p>
+    {% endif %}
+    {% if user.is_admin %}
+    <form method="post" action="/sources/{{ source.id }}/runs"><input type="hidden" name="kind" value="relogin"><button class="btn quiet small"><span class="job agent">Sign in again</span></button></form>
+    {% endif %}
+  </div>
+
+  <div class="group">
+    <h3>Credentials</h3>
+    <p>API keys, tokens and other logins the spider reads as <code>self.credentials["name"]</code> when it scrapes the live portal.</p>
+    {% if credentials %}
+    <ul class="listings">
+      {% for credential in credentials %}
+      <li class="cred">
+        <span><code>{{ credential.name }}</code> <span class="muted small">{{ credential.kind | replace("_", " ") }}{% if credential.hint %}, ends in {{ credential.hint }}{% endif %}, saved {{ credential.updated_at.strftime("%b %d") }}</span>{% if credential.note %}<span class="l-sub">{{ credential.note }}</span>{% endif %}</span>
+        {% if user.is_admin %}<form method="post" action="/sources/{{ source.id }}/credentials/{{ credential.name }}/forget" onsubmit="return confirm('Remove {{ credential.name }}?')"><button class="btn quiet small">Remove</button></form>{% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="small muted">None saved.</p>
+    {% endif %}
+    {% if user.is_admin %}
+    <form class="cred-form" method="post" action="/sources/{{ source.id }}/credentials">
+      <input name="name" required pattern="[a-z][a-z0-9_]*" placeholder="name, like api_key" aria-label="Name">
+      <select name="kind" aria-label="Kind">{% for kind in kinds %}<option value="{{ kind }}">{{ kind | replace("_", " ") }}</option>{% endfor %}</select>
+      <input name="value" type="password" required placeholder="Value" aria-label="Value" autocomplete="off">
+      <input name="note" placeholder="What it is (optional)" aria-label="Note">
+      <button class="btn small">Save</button>
+    </form>
+    {% endif %}
+  </div>
+</section>

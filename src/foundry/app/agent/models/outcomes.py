@@ -18,9 +18,15 @@ class Rejection(BaseModel, frozen=True):
     reason: str
 
 
+class Reply(BaseModel, frozen=True):
+    """A reopened run whose agent answered without handing in a new scraper."""
+
+    outcome: Literal["replied"] = "replied"
+
+
 class Restart(BaseModel, frozen=True):
     outcome: Literal["restart"] = "restart"
     commit: str
 
 
-Outcome = Annotated[ScraperPull | FreshSession | Rejection | Restart, Field(discriminator="outcome")]
+Outcome = Annotated[ScraperPull | FreshSession | Rejection | Reply | Restart, Field(discriminator="outcome")]

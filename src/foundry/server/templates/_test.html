@@ -1,0 +1,48 @@
+{% set source = progress.source %}{% set newest = progress.newest %}
+<section id="test" class="test"{% if tried.running %} hx-get="/sources/{{ source.id }}/test/results" hx-trigger="every 2s" hx-swap="outerHTML"{% endif %}>
+  <div class="test-bar">
+    <p><span class="job crawl">Test scrape</span> Runs v{{ newest.version }}'s code against the live portal and shows everything it finds. No agent, and nothing is saved.</p>
+    {% if tried.running %}
+      <span class="pill running">Scraping</span>
+    {% elif user.is_admin %}
+      <button class="btn" hx-post="/sources/{{ source.id }}/test" hx-target="#test" hx-swap="outerHTML" hx-disabled-elt="this">{{ "Run it again" if tried.finished else "Run a test scrape" }}</button>
+    {% endif %}
+  </div>
+  {% if tried.running %}
+    <p class="empty">Scraping the portal. Results show up here when it finishes.</p>
+  {% elif tried.trial %}
+    {% set trial = tried.trial %}
+    {% set crawl = trial.crawl %}
+    <div class="result {{ crawl.verdict }}">
+      <b class="num">{{ crawl.valid }}</b> listings found{% if crawl.invalid %}, <span class="num">{{ crawl.invalid }}</span> rejected{% endif %}{% if crawl.crashed %}, and the scrape crashed{% endif %}.
+      <span class="muted">Tested v{{ trial.scraper.version }} on {{ tried.finished.finished_at.strftime("%b %d at %H:%M") }}.</span>
+      {% if crawl.verdict == "relogin" %}<span class="warn">The portal asked to sign in, so the test saw nothing. Ask the agent to sign in again.</span>{% elif crawl.verdict == "heal" %}<span class="warn">The scraper doesn't work on the live portal. Request changes to have the agent fix it.</span>{% endif %}
+      {% if trial.scraper.version != newest.version %}<span class="warn">That was an older version; test again for v{{ newest.version }}.</span>{% endif %}
+    </div>
+    {% for error in crawl.errors %}<pre class="small err">{{ error }}</pre>{% endfor %}
+    <ul class="listings">
+      {% for listing in trial.listings %}
+      <li>
+        <details>
+          <summary>
+            <span class="l-title">{{ listing.title }}</span>
+            <span class="l-meta">{{ listing.buyer or "" }}{% if listing.due_at %}<span>Due {{ listing.due_at.strftime("%b %d, %Y") }}</span>{% endif %}{% if listing.files %}<span>{{ listing.files | length }} file{{ "s" if listing.files | length != 1 }}</span>{% endif %}</span>
+          </summary>
+          <div class="l-body">
+            <p><a href="{{ listing.url }}" target="_blank" rel="noopener">Open on the portal</a>{% if listing.external_id %} <span class="muted">Portal id {{ listing.external_id }}</span>{% endif %}</p>
+            {% if listing.description %}<p class="small">{{ listing.description | truncate(600) }}</p>{% endif %}
+            {% for file in listing.files %}<a class="file" href="{{ file.url }}" target="_blank" rel="noopener">{{ file.name }}</a>{% endfor %}
+            {% if listing.metadata %}<pre class="small">{{ listing.metadata | tojson(indent=2) }}</pre>{% endif %}
+          </div>
+        </details>
+      </li>
+      {% else %}
+      <li class="empty">The scrape found no listings.</li>
+      {% endfor %}
+    </ul>
+  {% elif tried.finished %}
+    <p class="empty">The last test ended without results: {{ tried.finished.summary or tried.finished.status }}.</p>
+  {% else %}
+    <p class="empty">Not tested yet. Run a test scrape to see what v{{ newest.version }} finds.</p>
+  {% endif %}
+</section>

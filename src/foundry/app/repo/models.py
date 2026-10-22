@@ -11,6 +11,16 @@ class Head(BaseModel, frozen=True):
     sha: str
 
 
+class PullFile(BaseModel, frozen=True):
+    """One file a pull request changes, with its unified diff; GitHub leaves `patch` out for binary or huge files."""
+
+    filename: str
+    status: str
+    additions: int
+    deletions: int
+    patch: str | None = None
+
+
 class Pull(BaseModel, frozen=True):
     """A pull request as GitHub's REST API returns it, with only the fields foundry reads."""
 

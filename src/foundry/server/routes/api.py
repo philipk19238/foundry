@@ -5,7 +5,7 @@ import uuid
 from fastapi import APIRouter
 
 from foundry.app.auth.models import UserView
-from foundry.app.catalog.catalog import Catalog
+from foundry.app.catalog.catalog import Catalog, Opportunities
 from foundry.app.catalog.models import NoticeView, SourceView
 from foundry.app.db.models.runs import RunKind
 from foundry.app.runs.models import EventView, RunView
@@ -40,8 +40,7 @@ async def refresh(source_id: uuid.UUID, services: Admin) -> RunView:
 
 @router.get("/sources/{source_id}/notices")
 async def notices(source_id: uuid.UUID, services: SignedIn) -> list[NoticeView]:
-    catalog = await services.aget(Catalog)
-    return await catalog.notices(source_id)
+    return await (await services.aget(Opportunities)).notices(source_id)
 
 
 @router.get("/runs/{run_id}")

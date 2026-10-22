@@ -41,6 +41,7 @@ async def crawl(job: CrawlJob) -> None:
             "ITEM_PIPELINES": {"foundry.core.spider.ListingPipeline": 100},
             "FOUNDRY_LISTINGS": str(job.listings),
             "FOUNDRY_SESSION": job.session.model_dump_json() if job.session is not None else "",
+            "FOUNDRY_CREDENTIALS": job.credentials,
             "FOUNDRY_FIXTURES": [fixture.model_dump() for fixture in job.fixtures or []],
             "LOG_LEVEL": "INFO",
         }

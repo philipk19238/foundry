@@ -14,13 +14,13 @@ from knockapi import AsyncKnock
 from pydantic import JsonValue
 
 from foundry.app import exceptions
-from foundry.app.agent.agent import Agent, Codex, Inbox, Narrator, Proposals, Workspaces
+from foundry.app.agent.agent import Agent, Codex, Inbox, Narrator, Workspaces
 from foundry.app.agent.models import outcomes, tasks
 from foundry.app.auth.auth import Logins, Users
-from foundry.app.browser.browser import Accounts, Browsers
+from foundry.app.browser.browser import Accounts, Browsers, Credentials
 from foundry.app.browser.client import KernelBrowserApi
 from foundry.app.browser.models import BrowserApi
-from foundry.app.catalog.catalog import Catalog
+from foundry.app.catalog.catalog import Catalog, Opportunities
 from foundry.app.catalog.models import ScrapedNotice, SourceView
 from foundry.app.core.models import Lease
 from foundry.app.db import db
@@ -31,6 +31,8 @@ from foundry.app.files.models import Bucket
 from foundry.app.help.client import KnockNotifier
 from foundry.app.help.help import HelpDesk, HelpQueue, RunChat
 from foundry.app.help.models import Notifier
+from foundry.app.progress.progress import Tracker
+from foundry.app.pulls.pulls import Imports, Proposals, Reviews
 from foundry.app.repo.client import GitHubPulls
 from foundry.app.repo.repo import Clones, Git, Mirror
 from foundry.app.runs.models import EventKind, RunView
@@ -62,12 +64,12 @@ class Refresher:
 
     async def refresh(self, lease: Lease, source: SourceView) -> RefreshReport:
         scraper = await self._versions.current(source.id)
-        session = await self._accounts.session(source.id)
+        access = await self._accounts.access(source.id)
         async with self._mirror.tree(scraper.commit) as tree:
-            report = await self._crawls.live(tree, scraper.site, session, source.previous_valid)
+            report = await self._crawls.live(tree, scraper.site, access, source.previous_valid)
         notices = [ScrapedNotice(source_id=source.id, listing=listing) for listing in report.listings]
         files = {
-            notice.notice_id: await self._downloads.fetch(notice.listing, session)
+            notice.notice_id: await self._downloads.fetch(notice.listing, access.session)
             for notice in await self._catalog.unseen(notices)
         }
         ingested = await self._catalog.ingest(lease, notices, files)
@@ -77,9 +79,9 @@ class Refresher:
     async def trial(self, scraper: ScraperView) -> CrawlReport:
         """One live crawl with any version, from its own code, storing nothing."""
         await self._mirror.fetch()
-        session = await self._accounts.session(scraper.source_id)
+        access = await self._accounts.access(scraper.source_id)
         async with self._mirror.tree(scraper.ref) as tree:
-            return await self._crawls.live(tree, scraper.site, session, 0)
+            return await self._crawls.live(tree, scraper.site, access, 0)
 
 
 class Jobs:
@@ -118,12 +120,38 @@ class Jobs:
         self._scrapers = scrapers
 
     async def carry_out(self, run_id: uuid.UUID) -> None:
+        """Carries a run out. An agent job that finds its source held waits for it instead of being skipped; whenever
+        a run lets go of its source, the jobs waiting on it are woken, and an agent whose run ended with messages it
+        never read is reopened to read them."""
         run = await self._history.run(run_id)
         await self._runs.start(run.id)
         try:
-            follow = await self._leases.hold(run.source_id, run.id, functools.partial(self._work, run))
+            await self._carry(run)
+        finally:
+            if run.kind.leased:
+                await self._queue.wake(run.source_id)
+        if run.has_agent and await self._replies_owed(run.id):
+            await self._queue.reopen(run.id)
+
+    async def _replies_owed(self, run_id: uuid.UUID) -> bool:
+        """An agent run that ended well but left messages unread; a failed one is not reopened, or a run that fails
+        before it reads would reopen forever."""
+        ended = await self._history.run(run_id)
+        return ended.status == RunStatus.SUCCEEDED and await self._agent.unread(run_id)
+
+    async def _carry(self, run: RunView) -> None:
+        try:
+            if run.kind.leased:
+                follow = await self._leases.hold(run.source_id, run.id, functools.partial(self._work, run))
+            else:
+                follow = await self._trial(run)
         except exceptions.SourceBusy as error:
-            await self._runs.finish(run.id, RunStatus.SKIPPED, str(error))
+            if run.has_agent:
+                await self._runs.defer(run.id)
+                if await self._leases.free(run.source_id):
+                    await self._queue.wake(run.source_id)
+            else:
+                await self._runs.finish(run.id, RunStatus.SKIPPED, str(error))
             return
         except exceptions.Error as error:
             await self._runs.finish(run.id, RunStatus.FAILED, str(error))
@@ -138,27 +166,6 @@ class Jobs:
         if follow is not None:
             await self._timeline.log(run.id, EventKind.STATUS, f"Queued a {follow} run next.")
             await self._queue.request(run.source_id, follow, run.requested_by)
-
-    async def refresh_ready(self) -> int:
-        """Fails runs whose worker is gone, then queues a refresh of every source whose scraper is healthy; the
-        schedule calls this."""
-        await self._runs.reap()
-        ready = [source for source in await self._catalog.sources() if source.status == SourceStatus.READY]
-        for source in ready:
-            await self._queue.request(source.id, RunKind.REFRESH, None)
-        return len(ready)
-
-    async def review_pending(self) -> int:
-        """Queues a review of every source whose pull request was merged or closed; the schedule calls this."""
-        decided = 0
-        for source in await self._catalog.sources():
-            proposal = await self._versions.proposed(source.id)
-            if source.status != SourceStatus.IN_REVIEW or proposal is None:
-                continue
-            if (await self._pulls.get(proposal.pull)).state == "closed":
-                await self._queue.request(source.id, RunKind.REVIEW, None)
-                decided += 1
-        return decided
 
     async def _work(self, run: RunView, lease: Lease) -> RunKind | None:
         match run.kind:
@@ -189,11 +196,14 @@ class Jobs:
         return NEXT.get(refreshed.health.status)
 
     async def _build(self, run: RunView, lease: Lease, task: tasks.Task) -> RunKind | None:
-        await self._healths.set(lease, SourceStatus.HEALING if run.kind == RunKind.HEAL else SourceStatus.ONBOARDING)
+        standing = await self._versions.standing(run.source_id)
+        working = standing.working(run.kind)
+        if working is not None:
+            await self._healths.set(lease, working)
         outcome = await self._agent.run(lease, task)
         match outcome:
             case outcomes.ScraperPull(version=version, url=url):
-                await self._healths.set(lease, SourceStatus.IN_REVIEW)
+                await self._healths.set(lease, SourceStatus.READY if standing.live else SourceStatus.IN_REVIEW)
                 await self._runs.finish(run.id, RunStatus.SUCCEEDED, f"proposed scraper version {version}: {url}")
                 return None
             case outcomes.Restart(commit=commit):
@@ -203,8 +213,12 @@ class Jobs:
             case outcomes.FreshSession():
                 await self._runs.finish(run.id, RunStatus.SUCCEEDED, "signed in again and saved the session")
                 return RunKind.REFRESH
+            case outcomes.Reply():
+                await self._healths.set(lease, standing.settled())
+                await self._runs.finish(run.id, RunStatus.SUCCEEDED, "replied without changing the scraper")
+                return None
             case outcomes.Rejection(reason=reason):
-                await self._healths.set(lease, SourceStatus.NEEDS_HUMAN)
+                await self._healths.set(lease, standing.rejected(run.kind))
                 await self._runs.finish(run.id, RunStatus.FAILED, reason)
                 return None
             case _:
@@ -212,7 +226,8 @@ class Jobs:
 
     async def _trial(self, run: RunView) -> RunKind | None:
         """Crawls the portal live with the newest version, merged or still in review, and keeps every listing on the
-        run to read; nothing is stored in the catalog and the source's health is untouched."""
+        run to read; nothing is stored in the catalog and the source's health is untouched, so a trial needs no lease
+        and runs while an agent works on the source."""
         scraper = await self._scrapers.newest(run.source_id)
         report = await self._refresher.trial(scraper)
         stats: dict[str, JsonValue] = {
@@ -236,7 +251,8 @@ class Jobs:
             return await self._merged(run, lease, proposal, pull.merge_commit_sha)
         if pull.state == "closed":
             await self._versions.closed(lease, proposal)
-            await self._healths.set(lease, SourceStatus.NEEDS_HUMAN)
+            standing = await self._versions.standing(run.source_id)
+            await self._healths.set(lease, standing.settled())
             await self._runs.finish(run.id, RunStatus.SUCCEEDED, f"{pull.html_url} was closed without merging")
             return None
         await self._runs.finish(run.id, RunStatus.SKIPPED, f"{pull.html_url} is still open")
@@ -258,6 +274,45 @@ class Jobs:
             raise exceptions.NoScraper(source.id)
         crawl = Crawl.model_validate(last.stats["crawl"])
         return tasks.Heal(url=source.url, scraper=await self._versions.current(source.id), crawl=crawl)
+
+
+class Schedule:
+    """What the clock starts: a scrape of every healthy source every few hours, and every few minutes, the agent
+    jobs stranded waiting on a source nothing holds and the pull requests decided on GitHub."""
+
+    def __init__(
+        self, runs: Runs, leases: Leases, queue: Queue, catalog: Catalog, versions: Versions, pulls: GitHubPulls
+    ) -> None:
+        self._runs = runs
+        self._leases = leases
+        self._queue = queue
+        self._catalog = catalog
+        self._versions = versions
+        self._pulls = pulls
+
+    async def refresh_ready(self) -> int:
+        """Fails runs whose worker is gone, then queues a refresh of every source whose scraper is healthy; the
+        schedule calls this."""
+        await self._runs.reap()
+        ready = [source for source in await self._catalog.sources() if source.status == SourceStatus.READY]
+        for source in ready:
+            await self._queue.request(source.id, RunKind.REFRESH, None)
+        return len(ready)
+
+    async def review_pending(self) -> int:
+        """Wakes agent jobs left deferred on a source nothing holds, then queues a review of every source whose pull
+        request was merged or closed, on GitHub or here; the schedule calls this every few minutes."""
+        for source_id in await self._leases.stranded():
+            await self._queue.wake(source_id)
+        decided = 0
+        for source in await self._catalog.sources():
+            proposal = await self._versions.proposed(source.id)
+            if proposal is None:
+                continue
+            if (await self._pulls.get(proposal.pull)).state == "closed":
+                await self._queue.request(source.id, RunKind.REVIEW, None)
+                decided += 1
+        return decided
 
 
 def register(registry: svcs.Registry) -> None:
@@ -285,8 +340,8 @@ def register(registry: svcs.Registry) -> None:
     registry.register_value(Clones, Clones(git, mirror, settings))
     services = (
         Users, Logins, Catalog, Timeline, Leases, Runs, Pauses, RunHistory, RunFeed, HelpQueue, HelpDesk, Browsers,
-        Accounts, Workspaces, Narrator, Inbox, Codex, Versions, ScraperHistory, Healths, Downloads, GitHubPulls,
-        Proposals, Agent, Refresher,
+        Credentials, Accounts, Workspaces, Narrator, Inbox, Codex, Versions, ScraperHistory, Healths, Downloads,
+        GitHubPulls, Proposals, Agent, Refresher, Opportunities, Tracker, Imports,
     )  # fmt: skip
     for service in services:
         registry.register_factory(service, svcs.aautowire(service))
@@ -297,4 +352,6 @@ def register_queue(registry: svcs.Registry) -> None:
     """The queue and the jobs it feeds, for processes that registered a dispatcher."""
     registry.register_factory(Queue, svcs.aautowire(Queue))
     registry.register_factory(Jobs, svcs.aautowire(Jobs))
+    registry.register_factory(Schedule, svcs.aautowire(Schedule))
+    registry.register_factory(Reviews, svcs.aautowire(Reviews))
     registry.register_factory(RunChat, svcs.aautowire(RunChat))

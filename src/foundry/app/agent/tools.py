@@ -8,16 +8,19 @@ from typing import assert_never
 
 import svcs
 from mcp.server.mcpserver import Context, MCPServer
+from pydantic import ValidationError
 
 from foundry.app import app as foundry
 from foundry.app import exceptions
-from foundry.app.agent.agent import Proposals, Workspace
+from foundry.app.agent.agent import Workspace
 from foundry.app.agent.models import handoff
-from foundry.app.browser.browser import Accounts
-from foundry.app.browser.models import Account
+from foundry.app.browser.browser import Accounts, Credentials
+from foundry.app.browser.models import Account, NewCredential
 from foundry.app.core.models import Lease
+from foundry.app.db.models.access import CredentialKind
 from foundry.app.help import models as help_models
 from foundry.app.help.help import HelpDesk
+from foundry.app.pulls.pulls import Proposals
 from foundry.app.repo.client import GitHubPulls
 from foundry.app.repo.repo import Clones, Mirror
 from foundry.app.scrapers.models import CrawlReport
@@ -43,7 +46,7 @@ server = MCPServer("foundry", lifespan=lifespan)
 def described(report: CrawlReport) -> str:
     crawl = report.crawl
     lines = [
-        f"verdict: {crawl.verdict}",
+        f"fixture replay verdict: {crawl.verdict} (this checks parsing, not that the scraper finds everything)",
         f"valid listings: {crawl.valid}, invalid: {crawl.invalid}, crashed: {crawl.crashed}",
         *(f"error: {error}" for error in crawl.errors),
         *(listing.model_dump_json(indent=2) for listing in report.listings[:LISTINGS_SHOWN]),
@@ -123,8 +126,11 @@ async def submit(
         checks=tuple(checks),
         gaps=tuple(gaps),
     )
-    WORKSPACE.handoff.submit(submission)
-    return "Submitted. End your turn now with a short summary."
+    WORKSPACE.submissions.save(submission)
+    return (
+        "Submitted. After your turn foundry replays your branch, crawls the live portal from it and opens or updates "
+        "the pull request; the result shows in this run's chat. End your turn now with a short summary."
+    )
 
 
 @server.tool()
@@ -142,7 +148,7 @@ async def propose_change(
         await clones.commit(WORKSPACE.checkout, title)
         branch = await clones.push(WORKSPACE.checkout)
         pull = await pulls.open(branch, title, proposals.describe_change(CONTEXT.run_id, change))
-    WORKSPACE.handoff.keep_pull(handoff.ChangePull(number=pull.number, url=pull.html_url))
+    WORKSPACE.change_pulls.keep(handoff.ChangePull(number=pull.number, url=pull.html_url))
     return f"Opened {pull.html_url}."
 
 
@@ -153,7 +159,7 @@ async def restart(ctx: Context[svcs.Registry]) -> str:
     browser profile; the browser itself is a new one. After this, end your turn."""
     async with svcs.Container(ctx.request_context.lifespan_context) as services:
         clones, mirror, pulls, settings = await services.aget(Clones, Mirror, GitHubPulls, Settings)
-        change = WORKSPACE.handoff.pull()
+        change = WORKSPACE.change_pulls.read()
         if change is not None and not (await pulls.get(change.number)).merged:
             return f"{change.url} is not merged yet. Ask a person to merge it with `request_help`, then try again."
         if change is None and await clones.ahead(WORKSPACE.checkout):
@@ -186,6 +192,32 @@ async def save_account(username: str, password: str, ctx: Context[svcs.Registry]
         accounts = await services.aget(Accounts)
         await accounts.save_account(LEASE, Account(username=username, password=password))
     return "Saved."
+
+
+@server.tool()
+async def credentials(ctx: Context[svcs.Registry]) -> str:
+    """The portal's other saved credentials (API keys, tokens, second logins), with their values. Your spider reads
+    them as `self.credentials["<name>"]` on live crawls."""
+    async with svcs.Container(ctx.request_context.lifespan_context) as services:
+        saved = await (await services.aget(Credentials)).values(CONTEXT.source_id)
+    if not saved:
+        return "This portal has no other saved credentials."
+    return "\n".join(f"{name}: {value}" for name, value in saved.items())
+
+
+@server.tool()
+async def save_credential(name: str, kind: CredentialKind, value: str, note: str, ctx: Context[svcs.Registry]) -> str:
+    """Save a secret the scraper signs in with beyond the login: an API key, a bearer token, a second account's
+    password. `name` is lowercase with underscores, such as `api_key`; saving a name again replaces it. `note` says
+    what it is and where it came from. Live crawls hand it to the spider as `self.credentials[name]`; replays don't,
+    so the spider must parse fixtures without it. People see it, masked, on the scraper's Access tab."""
+    try:
+        credential = NewCredential(name=name, kind=kind, value=value, note=note)
+    except ValidationError as error:
+        return f"Not saved: {error.errors()[0]['msg']}"
+    async with svcs.Container(ctx.request_context.lifespan_context) as services:
+        await (await services.aget(Credentials)).save(CONTEXT.source_id, credential)
+    return f"Saved {name}."
 
 
 if __name__ == "__main__":

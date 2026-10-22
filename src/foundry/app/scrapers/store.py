@@ -35,6 +35,8 @@ _NEWEST = (
     .order_by(Scraper.version.desc())
     .limit(1)
 )
+_OF_PULL = select(Scraper.version).where(Scraper.source_id == bindparam("source"), Scraper.pull == bindparam("number"))
+_REVIEWING = select(Scraper.source_id).where(Scraper.state == ScraperState.PROPOSED).distinct()
 _LATEST = select(func.max(Scraper.version)).where(Scraper.source_id == bindparam("source"))
 _FENCE = update(Source).where(_HELD).values(fence=Source.fence).returning(Source.id)
 _MERGED = (
@@ -79,6 +81,16 @@ async def of_source(session: AsyncSession, source_id: uuid.UUID) -> Sequence[Scr
 async def newest(session: AsyncSession, source_id: uuid.UUID) -> Scraper | None:
     """The newest version still in play: merged, or waiting in its pull request."""
     return await session.scalar(_NEWEST, {"source": source_id})
+
+
+async def of_pull(session: AsyncSession, source_id: uuid.UUID, pull: int) -> int | None:
+    """The version a pull request already registered on the source, if any."""
+    return await session.scalar(_OF_PULL, {"source": source_id, "number": pull})
+
+
+async def reviewing_sources(session: AsyncSession) -> Sequence[uuid.UUID]:
+    """Sources with a version waiting in its pull request."""
+    return (await session.scalars(_REVIEWING)).all()
 
 
 async def proposed(session: AsyncSession, source_id: uuid.UUID) -> Scraper | None:
