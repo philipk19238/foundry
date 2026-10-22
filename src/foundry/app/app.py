@@ -37,7 +37,18 @@ from foundry.app.pulls.pulls import Imports, Proposals, Reviews
 from foundry.app.repo.client import GitHubPulls
 from foundry.app.repo.repo import Clones, Git, Mirror
 from foundry.app.runs.models import EventKind, RunView
-from foundry.app.runs.runs import MOST_ATTEMPTS, Attempts, Leases, Pauses, Queue, RunFeed, RunHistory, Runs, Timeline
+from foundry.app.runs.runs import (
+    MOST_ATTEMPTS,
+    Attempts,
+    Leases,
+    Pauses,
+    Queue,
+    RunChanges,
+    RunFeed,
+    RunHistory,
+    Runs,
+    Timeline,
+)
 from foundry.app.scrapers.models.crawl import Crawl, CrawlReport, CrawlState, Health, RefreshReport
 from foundry.app.scrapers.models.version import Proposal, ScraperView
 from foundry.app.scrapers.scrapers import CrawlFolders, Crawls, Healths, ScraperHistory, Versions
@@ -368,9 +379,9 @@ def register(registry: svcs.Registry) -> None:
     registry.register_value(CrawlState, CrawlFolders(settings.workspaces_dir / "crawls"))
     registry.register_value(Clones, Clones(git, mirror, settings))
     services = (
-        Users, Logins, Catalog, Timeline, Leases, Runs, Attempts, Pauses, RunHistory, RunFeed, HelpQueue, HelpDesk,
-        Browsers, Crawls, Credentials, Accounts, Workspaces, Narrator, Inbox, Codex, Versions, ScraperHistory, Healths,
-        GitHubPulls, Proposals, Agent, Refresher, Opportunities, Tracker, Imports, Learnings,
+        Users, Logins, Catalog, Timeline, Leases, Runs, Attempts, Pauses, RunHistory, RunChanges, RunFeed, HelpQueue,
+        HelpDesk, Browsers, Crawls, Credentials, Accounts, Workspaces, Narrator, Inbox, Codex, Versions, ScraperHistory,
+        Healths, GitHubPulls, Proposals, Agent, Refresher, Opportunities, Tracker, Imports, Learnings,
     )  # fmt: skip
     for service in services:
         registry.register_factory(service, svcs.aautowire(service))
