@@ -10,7 +10,7 @@ from foundry.app.auth.models import UserView
 from foundry.app.catalog.catalog import Catalog
 from foundry.app.db.db import now
 from foundry.app.db.models.runs import RunKind
-from foundry.app.help.help import HelpQueue
+from foundry.app.help.help import HelpQueue, RunChat
 from foundry.app.runs.runs import Queue, RunHistory, Timeline
 from foundry.app.scrapers.scrapers import Versions
 from foundry.app.settings import Settings
@@ -94,6 +94,20 @@ async def run_events(request: Request, run_id: uuid.UUID, services: SignedIn, af
     return templates.TemplateResponse(request, "events.html", context)
 
 
+@router.post("/runs/{run_id}/messages")
+async def say(run_id: uuid.UUID, text: Annotated[str, Form()], services: SignedIn) -> Response:
+    user, chat = await services.aget(UserView, RunChat)
+    await chat.say(run_id, user, text.strip())
+    return RedirectResponse(f"/runs/{run_id}", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@router.post("/runs/{run_id}/takeover")
+async def take_over(run_id: uuid.UUID, services: SignedIn) -> Response:
+    user, chat = await services.aget(UserView, RunChat)
+    await chat.ask_to_take_over(run_id, user)
+    return RedirectResponse(f"/runs/{run_id}", status_code=status.HTTP_303_SEE_OTHER)
+
+
 @router.get("/help")
 async def help_queue(request: Request, services: SignedIn) -> Response:
     templates, user, desk = await services.aget(Jinja2Templates, UserView, HelpQueue)
@@ -137,7 +151,8 @@ async def give_back(help_id: uuid.UUID, services: SignedIn) -> Response:
 async def done(help_id: uuid.UUID, services: SignedIn, note: Annotated[str, Form()] = "") -> Response:
     user, desk = await services.aget(UserView, HelpQueue)
     await desk.done(help_id, user, note)
-    return RedirectResponse(f"/help/{help_id}", status_code=status.HTTP_303_SEE_OTHER)
+    request_ = await desk.request(help_id)
+    return RedirectResponse(f"/runs/{request_.run_id}", status_code=status.HTTP_303_SEE_OTHER)
 
 
 @router.get("/tokens")

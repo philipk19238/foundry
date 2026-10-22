@@ -45,7 +45,8 @@ class Run(Base):
 
 
 class Event(Base):
-    """A line on a run's timeline: what the agent said, ran, or called, in order."""
+    """A line on a run's timeline: what the agent said, ran, or called, and what people wrote to it, in order.
+    `author` is the person's email on a line a person wrote."""
 
     __tablename__ = "run_events"
 
@@ -53,4 +54,5 @@ class Event(Base):
     run_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("runs.id"), index=True)
     kind: Mapped[str] = mapped_column(String(32))
     text: Mapped[str] = mapped_column(Text)
+    author: Mapped[str | None] = mapped_column(String(320))
     at: Mapped[dt.datetime] = mapped_column(UtcDateTime)

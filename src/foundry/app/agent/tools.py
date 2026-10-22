@@ -53,14 +53,16 @@ def described(report: CrawlReport) -> str:
 
 @server.tool()
 async def request_help(reason: str, ctx: Context[svcs.Registry]) -> str:
-    """Ask a person to take over your browser and get you past something you can't do yourself, or to review and
-    merge a pull request you opened. Waits until they are done (up to 45 minutes) and returns what they said."""
+    """Ask a person for something and wait for it (up to 45 minutes): an answer, which they give in the run's chat, or
+    a hand in your browser, which they take over and give back. Also how you ask them to review and merge a pull
+    request you opened. Returns what they said."""
     async with svcs.Container(ctx.request_context.lifespan_context) as services:
         desk = await services.aget(HelpDesk)
         answer = await desk.ask(CONTEXT.run_id, reason, CONTEXT.live_view_url)
     match answer:
         case help_models.HumanHelp(note=note):
-            return f"A person took over and finished. Their note: {note or '(none)'}. Look at the page before going on."
+            answered = note or "(no note)"
+            return f"A person answered: {answered}. If they used your browser, look at the page before going on."
         case help_models.NoAnswer():
             return "Nobody answered in time. Stop, and end with a summary of where you got stuck."
         case _:

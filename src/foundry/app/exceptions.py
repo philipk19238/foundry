@@ -121,3 +121,8 @@ class FileNotFound(Error):
 class MissingSetting(Error):
     def __init__(self, what: str) -> None:
         super().__init__(f"Set {what}.")
+
+
+class RunEnded(Error):
+    def __init__(self, run_id: uuid.UUID) -> None:
+        super().__init__(f"Run {run_id} has ended, so nobody would read this. Start a new run instead.")

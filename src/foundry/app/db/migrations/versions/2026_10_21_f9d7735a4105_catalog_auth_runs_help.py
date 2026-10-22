@@ -1,8 +1,8 @@
 """catalog auth runs help
 
-Revision ID: 41061cc93f70
+Revision ID: f9d7735a4105
 Revises: 
-Create Date: 2026-10-21 22:10:50.972990
+Create Date: 2026-10-21 22:52:56.054662
 """
 
 from collections.abc import Sequence
@@ -12,7 +12,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 import foundry.app.db.db
 
-revision: str = '41061cc93f70'
+revision: str = 'f9d7735a4105'
 down_revision: str | None = None
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
@@ -79,7 +79,7 @@ def upgrade() -> None:
     sa.Column('opportunity_id', sa.String(length=64), nullable=False),
     sa.Column('source_id', sa.Uuid(), nullable=False),
     sa.Column('buyer_id', sa.String(length=64), nullable=True),
-    sa.Column('external_id', sa.String(length=512), nullable=False),
+    sa.Column('external_id', sa.String(length=512), nullable=True),
     sa.Column('url', sa.String(length=2048), nullable=False),
     sa.Column('title', sa.Text(), nullable=False),
     sa.Column('due_at', foundry.app.db.db.UtcDateTime(), nullable=True),
@@ -131,6 +131,7 @@ def upgrade() -> None:
     sa.Column('notice_id', sa.String(length=64), nullable=False),
     sa.Column('file_id', sa.String(length=64), nullable=False),
     sa.Column('sha256', sa.String(length=64), nullable=True),
+    sa.Column('etag', sa.String(length=256), nullable=True),
     sa.Column('name', sa.String(length=1024), nullable=False),
     sa.Column('url', sa.String(length=2048), nullable=False),
     sa.Column('content_type', sa.String(length=256), nullable=True),
@@ -161,6 +162,7 @@ def upgrade() -> None:
     sa.Column('run_id', sa.Uuid(), nullable=False),
     sa.Column('kind', sa.String(length=32), nullable=False),
     sa.Column('text', sa.Text(), nullable=False),
+    sa.Column('author', sa.String(length=320), nullable=True),
     sa.Column('at', foundry.app.db.db.UtcDateTime(), nullable=False),
     sa.ForeignKeyConstraint(['run_id'], ['runs.id'], name=op.f('fk_run_events_run_id_runs')),
     sa.PrimaryKeyConstraint('id', name=op.f('pk_run_events'))

@@ -1,10 +1,14 @@
+import asyncio
+import contextlib
 import json
+import logging
 import os
 import sys
 import uuid
 from pathlib import Path
 
-from openai_codex import ApprovalMode, AsyncCodex, CodexConfig, Sandbox
+from openai_codex import ApprovalMode, AsyncCodex, AsyncTurnHandle, CodexConfig, Sandbox
+from openai_codex.errors import CodexError
 from openai_codex.generated.v2_all import (
     AgentMessageThreadItem,
     CommandExecutionThreadItem,
@@ -16,10 +20,12 @@ from openai_codex.generated.v2_all import (
 
 from foundry.app import exceptions
 from foundry.app.agent.models import handoff, outcomes, tasks
+from foundry.app.auth.auth import Users
 from foundry.app.browser.browser import Accounts, Browsers
 from foundry.app.browser.models import Browser
 from foundry.app.catalog.catalog import Catalog
 from foundry.app.core.models import Lease
+from foundry.app.help.models import Notifier
 from foundry.app.repo.client import GitHubPulls
 from foundry.app.repo.models import BRANCHES
 from foundry.app.repo.repo import CHECKOUT, Clones
@@ -30,22 +36,35 @@ from foundry.app.scrapers.scrapers import Crawls, Versions
 from foundry.app.settings import Settings
 from foundry.core.sites import Sites
 
+logger = logging.getLogger(__name__)
+
 KERNEL_MCP = "https://mcp.onkernel.com/mcp"
 TOOL_SECONDS = 3000
+INBOX_SECONDS = 3
 MAX_RESTARTS = 3
 SAMPLES = 5
 
 
 class Narrator:
-    """Puts what the agent says, runs, edits and calls on its run's timeline."""
+    """Puts what the agent says, runs, edits and calls on its run's timeline. What it says also goes to the run's
+    chat, and people are emailed a link to it; a failed email is logged, not fatal."""
 
-    def __init__(self, timeline: Timeline) -> None:
+    def __init__(self, timeline: Timeline, notifier: Notifier, users: Users, settings: Settings) -> None:
         self._timeline = timeline
+        self._notifier = notifier
+        self._users = users
+        self._base_url = settings.base_url
 
     async def tell(self, run_id: uuid.UUID, completed: ItemCompletedNotification) -> None:
         match completed.item.root:
             case AgentMessageThreadItem(text=text):
                 await self._timeline.log(run_id, EventKind.MESSAGE, text)
+                try:
+                    await self._notifier.agent_said(
+                        run_id, await self._users.all(), text, f"{self._base_url}/runs/{run_id}"
+                    )
+                except exceptions.NotifyFailed as error:
+                    logger.warning("run %s: %s", run_id, error)
             case CommandExecutionThreadItem(command=command, exit_code=code):
                 await self._timeline.log(run_id, EventKind.COMMAND, f"$ {command}  (exit {code})")
             case McpToolCallThreadItem(server=server, tool=tool, error=error):
@@ -120,6 +139,7 @@ class Workspace:
         self.handoff = Handoff(folder)
         self.restarts = Restarts(folder)
         self._thread = folder / "thread.txt"
+        self._read = folder / "chat.txt"
 
     @property
     def branch(self) -> str:
@@ -130,6 +150,13 @@ class Workspace:
 
     def keep_thread(self, thread_id: str) -> None:
         self._thread.write_text(thread_id)
+
+    def read_up_to(self) -> int:
+        """The last chat line handed to the agent."""
+        return int(self._read.read_text()) if self._read.exists() else 0
+
+    def read(self, event_id: int) -> None:
+        self._read.write_text(str(event_id))
 
 
 class Workspaces:
@@ -154,13 +181,29 @@ class Workspaces:
         return workspace
 
 
+class Inbox:
+    """Hands what people write in a run's chat to the agent while its turn runs, each line once, even across a
+    restart (the workspace keeps the last line handed over)."""
+
+    def __init__(self, timeline: Timeline) -> None:
+        self._timeline = timeline
+
+    async def deliver(self, run_id: uuid.UUID, workspace: Workspace, turn: AsyncTurnHandle) -> None:
+        while True:
+            for line in await self._timeline.from_people(run_id, workspace.read_up_to()):
+                await turn.steer(f"{line.author} wrote in this run's chat: {line.text}")
+                workspace.read(line.id)
+            await asyncio.sleep(INBOX_SECONDS)
+
+
 class Codex:
     """One Codex thread per run, in the run's checkout, with Kernel's MCP tools and our own. A run that restarted
-    goes on in the same thread."""
+    goes on in the same thread. People's chat messages reach the running turn as they arrive."""
 
-    def __init__(self, settings: Settings, narrator: Narrator) -> None:
+    def __init__(self, settings: Settings, narrator: Narrator, inbox: Inbox) -> None:
         self._settings = settings
         self._narrator = narrator
+        self._inbox = inbox
 
     async def work(self, browser: Browser, context: handoff.ToolsContext, workspace: Workspace, prompt: str) -> None:
         instructions = (
@@ -216,14 +259,20 @@ class Codex:
                     .format(commit=self._settings.deployed_commit or "(local)", session_id=browser.session_id)
                 )
             turn = await thread.turn(prompt)
-            async for event in turn.stream():
-                match event.payload:
-                    case ItemCompletedNotification():
-                        await self._narrator.tell(context.run_id, event.payload)
-                    case TurnCompletedNotification(turn=done) if done.error is not None:
-                        raise exceptions.AgentFailed(done.error.message)
-                    case _:
-                        pass
+            delivery = asyncio.create_task(self._inbox.deliver(context.run_id, workspace, turn))
+            try:
+                async for event in turn.stream():
+                    match event.payload:
+                        case ItemCompletedNotification():
+                            await self._narrator.tell(context.run_id, event.payload)
+                        case TurnCompletedNotification(turn=done) if done.error is not None:
+                            raise exceptions.AgentFailed(done.error.message)
+                        case _:
+                            pass
+            finally:
+                delivery.cancel()
+                with contextlib.suppress(asyncio.CancelledError, CodexError):
+                    await delivery
 
     def _forwarded(self) -> list[str]:
         names = [name.upper() for name in Settings.model_fields]

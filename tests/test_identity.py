@@ -37,8 +37,19 @@ SAMPLE = ScrapedNotice(
 
 
 def test_opportunity_key_matches_the_model() -> None:
-    key = Key.of("opportunity", [str(SAMPLE.source_id), SAMPLE.listing.external_id])
+    key = Key.of("opportunity", [str(SAMPLE.source_id), "id", "RFP-25-001"])
     assert key.encoded.hex() == VECTORS["opportunity"]
+    assert key.digest == SAMPLE.opportunity_id
+
+
+def test_a_listing_without_a_portal_id_is_anchored_by_its_title_as_in_the_model() -> None:
+    untitled = ScrapedNotice(
+        source_id=SAMPLE.source_id,
+        listing=SAMPLE.listing.model_copy(update={"external_id": None, "title": "  Road   SALT "}),
+    )
+    key = Key.of("opportunity", [str(SAMPLE.source_id), "title", "road salt"])
+    assert key.encoded.hex() == VECTORS["untitled"]
+    assert key.digest == untitled.opportunity_id
 
 
 def test_notice_key_matches_the_model_with_files_sorted_and_deduplicated() -> None:
@@ -46,7 +57,8 @@ def test_notice_key_matches_the_model_with_files_sorted_and_deduplicated() -> No
     assert listing.due_at is not None
     fields = [
         str(SAMPLE.source_id),
-        listing.external_id,
+        "id",
+        "RFP-25-001",
         listing.title,
         listing.due_at.isoformat(),
         listing.description,

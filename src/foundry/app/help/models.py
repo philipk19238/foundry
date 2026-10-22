@@ -47,9 +47,13 @@ Answer = Annotated[HumanHelp | NoAnswer, Field(discriminator="outcome")]
 
 
 class Notifier(Protocol):
-    """Tells the people who can help that an agent is stuck. It carries a link only; what the agent sees stays behind
-    sign-in on the help page. A failed send raises NotifyFailed."""
+    """Tells people what an agent asks or says, with a link to the run's chat; everything else stays behind sign-in
+    there. A failed send raises NotifyFailed."""
 
     async def help_requested(
         self, help_id: uuid.UUID, recipients: Sequence[UserView], reason: str, url: str
     ) -> None: ...
+
+    async def agent_said(self, run_id: uuid.UUID, recipients: Sequence[UserView], text: str, url: str) -> None:
+        """One message from the agent; Knock batches a burst of them into one email."""
+        ...

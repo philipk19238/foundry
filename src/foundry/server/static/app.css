@@ -99,3 +99,21 @@ td { font-variant-numeric: tabular-nums; }
 
 .login { max-width: 380px; margin: 12vh auto 0; display: grid; gap: 14px; }
 .login h1 { font-size: 28px; }
+
+.chat { display: grid; gap: 14px; }
+.lines { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; max-height: 62vh; overflow-y: auto; scroll-behavior: smooth; }
+.line { display: grid; gap: 3px; max-width: 78%; animation: arrive 0.25s ease-out; }
+.line .who { font-size: 12px; color: var(--muted); }
+.line time { font-size: 11px; color: var(--muted); font-family: var(--mono); }
+.line .bubble { padding: 10px 14px; border-radius: 14px 14px 14px 4px; background: var(--bg); border: 1px solid var(--line); white-space: pre-wrap; word-break: break-word; }
+.line.person, .line.answer { justify-self: end; text-align: right; }
+.line.person .bubble, .line.answer .bubble { background: var(--accent); color: var(--accent-ink); border-color: transparent; border-radius: 14px 14px 4px 14px; text-align: left; }
+.line.help { justify-self: center; max-width: 90%; text-align: center; }
+.line.help .bubble { background: color-mix(in srgb, var(--wait) 10%, transparent); border-color: color-mix(in srgb, var(--wait) 30%, transparent); border-radius: 10px; }
+.alert.asking { display: grid; gap: 8px; border-color: color-mix(in srgb, var(--wait) 40%, transparent); }
+.composer { display: grid; gap: 8px; }
+.composer textarea { width: 100%; resize: vertical; font: inherit; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); }
+.composer .row { align-items: center; }
+details.card > summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+details.card[open] > summary { margin-bottom: 10px; }
+@media (max-width: 640px) { .line { max-width: 92%; } }

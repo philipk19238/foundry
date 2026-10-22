@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from foundry.app.db.models.catalog import Source
 from foundry.app.db.models.runs import Event, Run, RunKind, RunStatus
+from foundry.app.runs.models import EventKind
 
 _HELD = and_(
     Source.id == bindparam("source"),
@@ -56,7 +57,16 @@ _EVENTS = (
     .limit(bindparam("limit"))
 )
 _ADD_EVENT = insert(Event).values(
-    run_id=bindparam("run"), kind=bindparam("sort"), text=bindparam("line"), at=bindparam("when")
+    run_id=bindparam("run"),
+    kind=bindparam("sort"),
+    text=bindparam("line"),
+    author=bindparam("by"),
+    at=bindparam("when"),
+)
+_PEOPLE = (
+    select(Event)
+    .where(Event.run_id == bindparam("run"), Event.kind == EventKind.PERSON, Event.id > bindparam("after"))
+    .order_by(Event.id)
 )
 _ACTIVE = (RunStatus.QUEUED, RunStatus.RUNNING, RunStatus.WAITING)
 _LIVE_LEASE = exists().where(
@@ -151,8 +161,14 @@ async def finish(
     await session.execute(_FINISH, {"run": run_id, "state": status, "text": summary, "numbers": stats, "at": at})
 
 
-async def add_event(session: AsyncSession, run_id: uuid.UUID, kind: str, text: str, at: dt.datetime) -> None:
-    await session.execute(_ADD_EVENT, {"run": run_id, "sort": kind, "line": text, "when": at})
+async def add_event(
+    session: AsyncSession, run_id: uuid.UUID, kind: str, text: str, author: str | None, at: dt.datetime
+) -> None:
+    await session.execute(_ADD_EVENT, {"run": run_id, "sort": kind, "line": text, "by": author, "when": at})
+
+
+async def people(session: AsyncSession, run_id: uuid.UUID, after: int) -> Sequence[Event]:
+    return (await session.scalars(_PEOPLE, {"run": run_id, "after": after})).all()
 
 
 async def events(session: AsyncSession, run_id: uuid.UUID, after: int, limit: int) -> Sequence[Event]:

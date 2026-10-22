@@ -41,7 +41,17 @@ class Timeline:
 
     async def log(self, run_id: uuid.UUID, kind: models.EventKind, text: str) -> None:
         async with self._sessionmaker.begin() as session:
-            await store.add_event(session, run_id, kind, text, now())
+            await store.add_event(session, run_id, kind, text, None, now())
+
+    async def wrote(self, run_id: uuid.UUID, kind: models.EventKind, author: str, text: str) -> None:
+        """A line a person wrote in the run's chat."""
+        async with self._sessionmaker.begin() as session:
+            await store.add_event(session, run_id, kind, text, author, now())
+
+    async def from_people(self, run_id: uuid.UUID, after: int) -> list[models.EventView]:
+        """What people wrote to the agent after event ``after``, for it to read."""
+        async with self._sessionmaker() as session:
+            return [models.EventView.model_validate(event) for event in await store.people(session, run_id, after)]
 
     async def since(self, run_id: uuid.UUID, after: int) -> list[models.EventView]:
         async with self._sessionmaker() as session:

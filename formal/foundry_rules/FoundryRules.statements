@@ -257,80 +257,87 @@
     },
     {
       "kind": "definition",
-      "name": "Foundry.Listing.casesOn",
-      "type": "{motive : Foundry.Listing → Sort u} → (t : Foundry.Listing) → ((source externalId title dueAt description metadata : Foundry.Bytes) → (files : List Nat) → motive { source := source, externalId := externalId, title := title, dueAt := dueAt, description := description, metadata := metadata, files := files }) → motive t",
-      "typeHash": "7066066463632994796",
-      "valueHash": "1311582420"
-    },
-    {
-      "kind": "definition",
-      "name": "Foundry.Listing.description",
+      "name": "Foundry.Listing.anchor",
       "type": "Foundry.Listing → Foundry.Bytes",
       "typeHash": "13689103317083088104",
-      "valueHash": "807737414"
+      "valueHash": "4153693726"
     },
     {
       "kind": "definition",
-      "name": "Foundry.Listing.dueAt",
-      "type": "Foundry.Listing → Foundry.Bytes",
-      "typeHash": "13689103317083088104",
-      "valueHash": "2455612995"
-    },
-    {
-      "kind": "definition",
-      "name": "Foundry.Listing.externalId",
+      "name": "Foundry.Listing.anchorKind",
       "type": "Foundry.Listing → Foundry.Bytes",
       "typeHash": "13689103317083088104",
       "valueHash": "571851569"
     },
     {
       "kind": "definition",
+      "name": "Foundry.Listing.casesOn",
+      "type": "{motive : Foundry.Listing → Sort u} → (t : Foundry.Listing) → ((source anchorKind anchor title dueAt description metadata : Foundry.Bytes) → (files : List Nat) → motive { source := source, anchorKind := anchorKind, anchor := anchor, title := title, dueAt := dueAt, description := description, metadata := metadata, files := files }) → motive t",
+      "typeHash": "12286051369725293238",
+      "valueHash": "1947561055"
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.Listing.description",
+      "type": "Foundry.Listing → Foundry.Bytes",
+      "typeHash": "13689103317083088104",
+      "valueHash": "3302728420"
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.Listing.dueAt",
+      "type": "Foundry.Listing → Foundry.Bytes",
+      "typeHash": "13689103317083088104",
+      "valueHash": "807737414"
+    },
+    {
+      "kind": "definition",
       "name": "Foundry.Listing.files",
       "type": "Foundry.Listing → List Nat",
       "typeHash": "4703437935340998320",
-      "valueHash": "640599002"
+      "valueHash": "4025549015"
     },
     {
       "kind": "definition",
       "name": "Foundry.Listing.metadata",
       "type": "Foundry.Listing → Foundry.Bytes",
       "typeHash": "13689103317083088104",
-      "valueHash": "3302728420"
+      "valueHash": "640599002"
     },
     {
       "kind": "constructor",
       "name": "Foundry.Listing.mk",
-      "type": "Foundry.Bytes → Foundry.Bytes → Foundry.Bytes → Foundry.Bytes → Foundry.Bytes → Foundry.Bytes → List Nat → Foundry.Listing",
-      "typeHash": "5831088976663478694",
+      "type": "Foundry.Bytes → Foundry.Bytes → Foundry.Bytes → Foundry.Bytes → Foundry.Bytes → Foundry.Bytes → Foundry.Bytes → List Nat → Foundry.Listing",
+      "typeHash": "7581969192745257885",
       "valueHash": null
     },
     {
       "kind": "definition",
       "name": "Foundry.Listing.mk.noConfusion",
-      "type": "{P : Sort u} → {source externalId title dueAt description metadata : Foundry.Bytes} → {files : List Nat} → {source' externalId' title' dueAt' description' metadata' : Foundry.Bytes} → {files' : List Nat} → { source := source, externalId := externalId, title := title, dueAt := dueAt, description := description, metadata := metadata, files := files } = { source := source', externalId := externalId', title := title', dueAt := dueAt', description := description', metadata := metadata', files := files' } → (source = source' → externalId = externalId' → title = title' → dueAt = dueAt' → description = description' → metadata = metadata' → files = files' → P) → P",
-      "typeHash": "11708854208514218520",
-      "valueHash": "4054707898"
+      "type": "{P : Sort u} → {source anchorKind anchor title dueAt description metadata : Foundry.Bytes} → {files : List Nat} → {source' anchorKind' anchor' title' dueAt' description' metadata' : Foundry.Bytes} → {files' : List Nat} → { source := source, anchorKind := anchorKind, anchor := anchor, title := title, dueAt := dueAt, description := description, metadata := metadata, files := files } = { source := source', anchorKind := anchorKind', anchor := anchor', title := title', dueAt := dueAt', description := description', metadata := metadata', files := files' } → (source = source' → anchorKind = anchorKind' → anchor = anchor' → title = title' → dueAt = dueAt' → description = description' → metadata = metadata' → files = files' → P) → P",
+      "typeHash": "13427802185289564728",
+      "valueHash": "1323862281"
     },
     {
       "kind": "definition",
       "name": "Foundry.Listing.noConfusion",
       "type": "{P : Sort u} → {t t' : Foundry.Listing} → t = t' → Foundry.Listing.noConfusionType P t t'",
       "typeHash": "5085155383076216812",
-      "valueHash": "754277533"
+      "valueHash": "57099610"
     },
     {
       "kind": "recursor",
       "name": "Foundry.Listing.rec",
-      "type": "{motive : Foundry.Listing → Sort u} → ((source externalId title dueAt description metadata : Foundry.Bytes) → (files : List Nat) → motive { source := source, externalId := externalId, title := title, dueAt := dueAt, description := description, metadata := metadata, files := files }) → (t : Foundry.Listing) → motive t",
-      "typeHash": "16593967449898953205",
+      "type": "{motive : Foundry.Listing → Sort u} → ((source anchorKind anchor title dueAt description metadata : Foundry.Bytes) → (files : List Nat) → motive { source := source, anchorKind := anchorKind, anchor := anchor, title := title, dueAt := dueAt, description := description, metadata := metadata, files := files }) → (t : Foundry.Listing) → motive t",
+      "typeHash": "10039648316864803851",
       "valueHash": null
     },
     {
       "kind": "definition",
       "name": "Foundry.Listing.recOn",
-      "type": "{motive : Foundry.Listing → Sort u} → (t : Foundry.Listing) → ((source externalId title dueAt description metadata : Foundry.Bytes) → (files : List Nat) → motive { source := source, externalId := externalId, title := title, dueAt := dueAt, description := description, metadata := metadata, files := files }) → motive t",
-      "typeHash": "7066066463632994796",
-      "valueHash": "1191388023"
+      "type": "{motive : Foundry.Listing → Sort u} → (t : Foundry.Listing) → ((source anchorKind anchor title dueAt description metadata : Foundry.Bytes) → (files : List Nat) → motive { source := source, anchorKind := anchorKind, anchor := anchor, title := title, dueAt := dueAt, description := description, metadata := metadata, files := files }) → motive t",
+      "typeHash": "12286051369725293238",
+      "valueHash": "59412973"
     },
     {
       "kind": "definition",
@@ -344,14 +351,14 @@
       "name": "Foundry.Listing.title",
       "type": "Foundry.Listing → Foundry.Bytes",
       "typeHash": "13689103317083088104",
-      "valueHash": "4153693726"
+      "valueHash": "2455612995"
     },
     {
       "kind": "definition",
       "name": "Foundry.SameContent",
       "type": "Foundry.Listing → Foundry.Listing → Prop",
       "typeHash": "11347921224079869457",
-      "valueHash": "775840036"
+      "valueHash": "2895160256"
     },
     {
       "kind": "inductive",
@@ -690,6 +697,13 @@
       "valueHash": "3367645802"
     },
     {
+      "kind": "theorem",
+      "name": "Foundry.id_and_title_anchors_differ",
+      "type": "∀ (a b : Foundry.Listing), Foundry.Fits (Foundry.opportunityKey a) → Foundry.Fits (Foundry.opportunityKey b) → a.anchorKind = Foundry.kindId → b.anchorKind = Foundry.kindTitle → Foundry.encode (Foundry.opportunityKey a) ≠ Foundry.encode (Foundry.opportunityKey b)",
+      "typeHash": "11255840644925157479",
+      "valueHash": null
+    },
+    {
       "kind": "definition",
       "name": "Foundry.ingest",
       "type": "List Foundry.Bytes → Foundry.Bytes → List Foundry.Bytes",
@@ -778,7 +792,7 @@
       "name": "Foundry.instDecidableEqListing.decEq",
       "type": "(x x_1 : Foundry.Listing) → Decidable (x = x_1)",
       "typeHash": "14927977997314306332",
-      "valueHash": "1093750973"
+      "valueHash": "4281684099"
     },
     {
       "kind": "definition",
@@ -848,7 +862,7 @@
       "name": "Foundry.instReprListing.repr",
       "type": "Foundry.Listing → Nat → Std.Format",
       "typeHash": "1624216432624669032",
-      "valueHash": "2558933710"
+      "valueHash": "1714005952"
     },
     {
       "kind": "definition",
@@ -877,6 +891,20 @@
       "type": "Foundry.Verdict → Nat → Std.Format",
       "typeHash": "6275786262418430145",
       "valueHash": "2072511378"
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.kindId",
+      "type": "Foundry.Bytes",
+      "typeHash": "15245437307616074883",
+      "valueHash": "3519569536"
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.kindTitle",
+      "type": "Foundry.Bytes",
+      "typeHash": "15245437307616074883",
+      "valueHash": "3454031266"
     },
     {
       "kind": "definition",
@@ -995,7 +1023,7 @@
       "name": "Foundry.noticeKey",
       "type": "(Nat → Foundry.Bytes) → Foundry.Listing → List Foundry.Bytes",
       "typeHash": "8710557090434063408",
-      "valueHash": "3137027081"
+      "valueHash": "1257739781"
     },
     {
       "kind": "theorem",
@@ -1016,20 +1044,20 @@
       "name": "Foundry.opportunityKey",
       "type": "Foundry.Listing → List Foundry.Bytes",
       "typeHash": "866738534563641853",
-      "valueHash": "1160253104"
+      "valueHash": "3740993778"
     },
     {
       "kind": "theorem",
       "name": "Foundry.opportunity_ignores_dynamic",
-      "type": "∀ (a b : Foundry.Listing), a.source = b.source → a.externalId = b.externalId → Foundry.encode (Foundry.opportunityKey a) = Foundry.encode (Foundry.opportunityKey b)",
-      "typeHash": "15127425414201014647",
+      "type": "∀ (a b : Foundry.Listing), a.source = b.source → a.anchorKind = b.anchorKind → a.anchor = b.anchor → Foundry.encode (Foundry.opportunityKey a) = Foundry.encode (Foundry.opportunityKey b)",
+      "typeHash": "13189476859463740776",
       "valueHash": null
     },
     {
       "kind": "theorem",
       "name": "Foundry.opportunity_same_iff",
-      "type": "∀ (a b : Foundry.Listing), Foundry.Fits (Foundry.opportunityKey a) → Foundry.Fits (Foundry.opportunityKey b) → (Foundry.encode (Foundry.opportunityKey a) = Foundry.encode (Foundry.opportunityKey b) ↔ a.source = b.source ∧ a.externalId = b.externalId)",
-      "typeHash": "2398958974926771784",
+      "type": "∀ (a b : Foundry.Listing), Foundry.Fits (Foundry.opportunityKey a) → Foundry.Fits (Foundry.opportunityKey b) → (Foundry.encode (Foundry.opportunityKey a) = Foundry.encode (Foundry.opportunityKey b) ↔ a.source = b.source ∧ a.anchorKind = b.anchorKind ∧ a.anchor = b.anchor)",
+      "typeHash": "4820484703929638682",
       "valueHash": null
     },
     {
@@ -1058,7 +1086,7 @@
       "name": "Foundry.sample",
       "type": "Foundry.Listing",
       "typeHash": "15487665391932108320",
-      "valueHash": "2913376329"
+      "valueHash": "3168923838"
     },
     {
       "kind": "theorem",
@@ -1094,6 +1122,13 @@
       "type": "Foundry.Bytes",
       "typeHash": "15245437307616074883",
       "valueHash": "81663000"
+    },
+    {
+      "kind": "definition",
+      "name": "Foundry.untitled",
+      "type": "Foundry.Listing",
+      "typeHash": "15487665391932108320",
+      "valueHash": "2568808743"
     },
     {
       "kind": "definition",

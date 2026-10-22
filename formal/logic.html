@@ -137,7 +137,7 @@ th { font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: 
     <div class="grid2">
       <div class="fields" id="fields"></div>
       <div style="display:grid;gap:10px;align-content:start">
-        <div><span class="tag static">opportunity_id</span> <span class="small muted">source and portal id only</span></div>
+        <div><span class="tag static">opportunity_id</span> <span class="small muted">source and portal id only (the title when the portal shows no id)</span></div>
         <div class="hash" id="opp"></div>
         <div><span class="tag dynamic">notice_id</span> <span class="small muted">every field, with files as a sorted set</span></div>
         <div class="hash" id="notice"></div>
@@ -405,8 +405,9 @@ function outBox(g, x, y, label, tone, w) {
   async function compute() {
     const v = Object.fromEntries(Object.entries(inputs).map(([k, i]) => [k, i.value]));
     const filesKey = [...new Set(files)].sort();
-    const opp = await sha(["opportunity", v.source, v.external]);
-    const notice = await sha(["notice", v.source, v.external, v.title, v.due, v.description, v.metadata, ...filesKey]);
+    const anchor = v.external ? ["id", v.external] : ["title", v.title.toLowerCase().split(/\s+/).filter(Boolean).join(" ")];
+    const opp = await sha(["opportunity", v.source, ...anchor]);
+    const notice = await sha(["notice", v.source, ...anchor, v.title, v.due, v.description, v.metadata, ...filesKey]);
     if (!first) first = { opp, notice };
     const oppEl = document.getElementById("opp"), noticeEl = document.getElementById("notice");
     oppEl.textContent = opp; noticeEl.textContent = notice;

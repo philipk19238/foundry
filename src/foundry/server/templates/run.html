@@ -8,12 +8,32 @@
   </div>
   <div class="facts" id="run-status">{% include "_run_status.html" %}</div>
 </section>
-<section id="help-box">{% include "_help_box.html" %}</section>
-<section class="card">
+
+<section class="chat card">
+  <ol class="lines" id="chat">
+    {% for event in events if event.in_chat %}{% include "_chat_line.html" %}{% endfor %}
+  </ol>
+  <section id="help-box">{% include "_help_box.html" %}</section>
+  {% if run.is_active %}
+  <form class="composer" method="post" action="/runs/{{ run.id }}/messages"
+        hx-post="/runs/{{ run.id }}/messages" hx-swap="none" hx-on::after-request="if (event.detail.successful) this.reset()">
+    <textarea name="text" rows="2" required placeholder="Tell the agent something, or answer its question…"
+              onkeydown="if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) this.form.requestSubmit()"></textarea>
+    <div class="row">
+      <button>Send</button>
+      <button class="ghost" formaction="/runs/{{ run.id }}/takeover" hx-post="/runs/{{ run.id }}/takeover" formnovalidate>Pause the agent so I can take over</button>
+      <span class="small muted">⌘↵ sends. It reaches the agent mid-task.</span>
+    </div>
+  </form>
+  {% endif %}
+</section>
+
+<details class="card">
+  <summary>Activity: every command, edit and tool call</summary>
   <ol class="timeline" id="timeline">
     {% for event in events %}{% include "_event.html" %}{% endfor %}
   </ol>
-  {% set after = events[-1].id if events else 0 %}
-  {% include "_poller.html" %}
-</section>
+</details>
+{% set after = events[-1].id if events else 0 %}
+{% include "_poller.html" %}
 {% endblock %}

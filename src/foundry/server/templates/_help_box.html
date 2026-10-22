@@ -1,3 +1,13 @@
 {% for request_ in help if request_.status in ("open", "claimed") %}
-<div class="alert"><strong>✋ The agent asked for help:</strong> {{ request_.reason }} <a href="/help/{{ request_.id }}">Take over →</a></div>
+<div class="alert asking">
+  <div><strong>✋ The agent is waiting on you:</strong> {{ request_.reason }}</div>
+  <div class="row">
+    {% if request_.status == "open" %}
+      <span class="small muted">Reply below to answer, or</span>
+      <form method="post" action="/help/{{ request_.id }}/claim"><button>Take over the browser</button></form>
+    {% else %}
+      <a href="/help/{{ request_.id }}">Someone is driving the browser →</a>
+    {% endif %}
+  </div>
+</div>
 {% endfor %}

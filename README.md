@@ -137,7 +137,8 @@ A spider is one module with one `class Spider(PortalSpider)`.
   `Request(..., callback=self.parse_detail)` per opportunity, and the next page back to `parse`.
 - `parse_detail` yields one `Listing` per opportunity:
   - `external_id`: the portal's own id (solicitation number, or the record id). It must never change when the
-    portal edits the listing.
+    portal edits the listing. Leave it out only if the portal shows none: the title then identifies the opportunity,
+    so a retitled listing becomes a new one.
   - `url` a person can open; `title`; `buyer` (the agency or department, if shown); `due_at`, timezone-aware (the
     portal's local zone if it gives none); `description` as plain text.
   - `metadata`: everything else useful (NAICS, set-aside, contact, status, category) as JSON values.
