@@ -15,6 +15,8 @@ class EventKind(enum.StrEnum):
     TOOL = "tool"
     FILE = "file"
     HELP = "help"
+    PERSON = "person"
+    ANSWER = "answer"
     CRAWL = "crawl"
     ERROR = "error"
 
@@ -35,7 +37,10 @@ class RunView(BaseModel):
 
     @property
     def is_active(self) -> bool:
-        return self.status in (RunStatus.QUEUED, RunStatus.RUNNING, RunStatus.WAITING)
+        return self.status in (RunStatus.QUEUED, RunStatus.RUNNING, RunStatus.WAITING, RunStatus.RESTARTING)
+
+
+CHAT = (EventKind.MESSAGE, EventKind.PERSON, EventKind.ANSWER, EventKind.HELP)
 
 
 class EventView(BaseModel):
@@ -44,7 +49,13 @@ class EventView(BaseModel):
     id: int
     kind: EventKind
     text: str
+    author: str | None
     at: dt.datetime
+
+    @property
+    def in_chat(self) -> bool:
+        """What the chat shows: what the agent said, what people wrote, and the help requests between them."""
+        return self.kind in CHAT
 
 
 class Dispatcher(Protocol):

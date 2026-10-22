@@ -1,0 +1,7 @@
+<li class="line {{ event.kind }}">
+  {% if event.kind == "message" %}<span class="who">🤖 Agent</span>
+  {% elif event.kind == "help" %}<span class="who">✋ Help</span>
+  {% else %}<span class="who">{{ event.author }}{% if event.kind == "answer" %} · answered the request{% endif %}</span>{% endif %}
+  <div class="bubble">{{ event.text }}</div>
+  <time>{{ event.at.strftime("%H:%M") }}</time>
+</li>

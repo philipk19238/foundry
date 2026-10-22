@@ -141,6 +141,7 @@ class Downloads:
                         name=link.name,
                         url=link.url,
                         sha256=None,
+                        etag=None,
                         content_type=None,
                         size=0,
                     )  # fmt: skip
@@ -154,6 +155,7 @@ class Downloads:
                     name=link.name,
                     url=link.url,
                     sha256=digest,
+                    etag=response.headers.get("etag"),
                     content_type=response.headers.get("content-type"),
                     size=len(response.content),
                 )

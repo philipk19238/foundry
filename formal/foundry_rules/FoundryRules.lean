@@ -208,7 +208,8 @@ theorem map_injective (f : Nat → Bytes) (hf : ∀ x y, f x = f y → x = y) :
 
 structure Listing where
   source : Bytes
-  externalId : Bytes
+  anchorKind : Bytes
+  anchor : Bytes
   title : Bytes
   dueAt : Bytes
   description : Bytes
@@ -219,34 +220,41 @@ structure Listing where
 def tagOpportunity : Bytes := [111, 112, 112, 111, 114, 116, 117, 110, 105, 116, 121]
 def tagNotice : Bytes := [110, 111, 116, 105, 99, 101]
 
-/-- The static part of a listing: which portal, and the portal's own id for it. -/
-def opportunityKey (l : Listing) : List Bytes := [tagOpportunity, l.source, l.externalId]
+/-- What anchors an opportunity: the portal's own id (`"id"`), or its normalized title when it shows none
+(`"title"`), as UTF-8. -/
+def kindId : Bytes := [105, 100]
+def kindTitle : Bytes := [116, 105, 116, 108, 101]
+
+/-- The static part of a listing: which portal, and what anchors it there (its own id, or else its title). -/
+def opportunityKey (l : Listing) : List Bytes := [tagOpportunity, l.source, l.anchorKind, l.anchor]
 
 /-- Everything a portal can change between two scrapes of one opportunity. -/
 def noticeKey (digest : Nat → Bytes) (l : Listing) : List Bytes :=
-  [tagNotice, l.source, l.externalId, l.title, l.dueAt, l.description, l.metadata]
+  [tagNotice, l.source, l.anchorKind, l.anchor, l.title, l.dueAt, l.description, l.metadata]
     ++ (canonFiles l.files).map digest
 
 /-- Same files, same content: the files' members, not their order or repeats. -/
 def SameContent (a b : Listing) : Prop :=
-  a.source = b.source ∧ a.externalId = b.externalId ∧ a.title = b.title ∧ a.dueAt = b.dueAt
+  a.source = b.source ∧ a.anchorKind = b.anchorKind ∧ a.anchor = b.anchor ∧ a.title = b.title ∧ a.dueAt = b.dueAt
     ∧ a.description = b.description ∧ a.metadata = b.metadata ∧ ∀ x, x ∈ a.files ↔ x ∈ b.files
 
-/-- A portal edit to the title, due date, description, metadata or files never moves the opportunity. -/
-theorem opportunity_ignores_dynamic (a b : Listing) (hs : a.source = b.source) (he : a.externalId = b.externalId) :
-    encode (opportunityKey a) = encode (opportunityKey b) := by
-  simp [opportunityKey, hs, he]
+/-- With the same anchor, a portal edit to the title, due date, description, metadata or files never moves the
+opportunity. (A listing anchored by its title has the title as its anchor, so a retitle is a new opportunity.) -/
+theorem opportunity_ignores_dynamic (a b : Listing) (hs : a.source = b.source) (hk : a.anchorKind = b.anchorKind)
+    (he : a.anchor = b.anchor) : encode (opportunityKey a) = encode (opportunityKey b) := by
+  simp [opportunityKey, hs, hk, he]
 
 /-- Two scrapes share an opportunity id exactly when they come from the same portal record. -/
 theorem opportunity_same_iff (a b : Listing) (ha : Fits (opportunityKey a)) (hb : Fits (opportunityKey b)) :
-    encode (opportunityKey a) = encode (opportunityKey b) ↔ a.source = b.source ∧ a.externalId = b.externalId := by
+    encode (opportunityKey a) = encode (opportunityKey b) ↔
+      a.source = b.source ∧ a.anchorKind = b.anchorKind ∧ a.anchor = b.anchor := by
   constructor
   · intro h
     have := encode_injective _ _ ha hb h
     simp [opportunityKey] at this
     exact this
-  · rintro ⟨hs, he⟩
-    exact opportunity_ignores_dynamic a b hs he
+  · rintro ⟨hs, hk, he⟩
+    exact opportunity_ignores_dynamic a b hs hk he
 
 /-- Two scrapes share a notice id exactly when they have the same content; file order and repeats don't count. -/
 theorem notice_same_iff (digest : Nat → Bytes) (hd : ∀ x y, digest x = digest y → x = y) (a b : Listing)
@@ -256,20 +264,20 @@ theorem notice_same_iff (digest : Nat → Bytes) (hd : ∀ x y, digest x = diges
   · intro h
     have hk := encode_injective _ _ ha hb h
     simp only [noticeKey, List.cons_append, List.cons.injEq, List.nil_append] at hk
-    obtain ⟨-, hs, he, ht, hdue, hdesc, hm, hf⟩ := hk
+    obtain ⟨-, hs, hkind, he, ht, hdue, hdesc, hm, hf⟩ := hk
     have hfiles : canonFiles a.files = canonFiles b.files := map_injective digest hd _ _ hf
-    exact ⟨hs, he, ht, hdue, hdesc, hm, (canonFiles_eq_iff _ _).mp hfiles⟩
-  · rintro ⟨hs, he, ht, hdue, hdesc, hm, hf⟩
+    exact ⟨hs, hkind, he, ht, hdue, hdesc, hm, (canonFiles_eq_iff _ _).mp hfiles⟩
+  · rintro ⟨hs, hkind, he, ht, hdue, hdesc, hm, hf⟩
     have hfiles := (canonFiles_eq_iff _ _).mpr hf
-    simp [noticeKey, hs, he, ht, hdue, hdesc, hm, hfiles]
+    simp [noticeKey, hs, hkind, he, ht, hdue, hdesc, hm, hfiles]
 
 /-- A notice belongs to one opportunity: the same notice id means the same opportunity id. -/
 theorem notice_determines_opportunity (digest : Nat → Bytes) (hd : ∀ x y, digest x = digest y → x = y)
     (a b : Listing) (ha : Fits (noticeKey digest a)) (hb : Fits (noticeKey digest b))
     (h : encode (noticeKey digest a) = encode (noticeKey digest b)) :
     encode (opportunityKey a) = encode (opportunityKey b) := by
-  obtain ⟨hs, he, -⟩ := (notice_same_iff digest hd a b ha hb).mp h
-  exact opportunity_ignores_dynamic a b hs he
+  obtain ⟨hs, hk, he, -⟩ := (notice_same_iff digest hd a b ha hb).mp h
+  exact opportunity_ignores_dynamic a b hs hk he
 
 /-! ## 4. Ingest: storing scraped notices is a set union, so re-runs and reordering change nothing -/
 
@@ -499,14 +507,27 @@ def hex (bs : Bytes) : String :=
   String.join (bs.map fun b => String.ofList [Char.ofNat (hexDigit (b / 16)), Char.ofNat (hexDigit (b % 16))])
 
 def sample : Listing :=
-  { source := utf8 "6f1c2a9e-0b7d-4e55-9a7e-1d2f3c4b5a69", externalId := utf8 "RFP-25-001", title := utf8 "Road salt",
+  { source := utf8 "6f1c2a9e-0b7d-4e55-9a7e-1d2f3c4b5a69", anchorKind := kindId, anchor := utf8 "RFP-25-001", title := utf8 "Road salt",
     dueAt := utf8 "2026-11-03T14:00:00-06:00",
     description := utf8 "Bulk road salt", metadata := utf8 "{\"naics\":\"212390\"}", files := [
       59126477157097212714377166449681610041871851358233539270424794581628420598807,
       48919551711525898028777735810013705148162447905680889003658162376953041795265,
       59126477157097212714377166449681610041871851358233539270424794581628420598807] }
 
+def untitled : Listing :=
+  { sample with anchorKind := kindTitle, anchor := utf8 "road salt" }
+
+/-- An id anchor and a title anchor never give the same opportunity, even when the strings agree. -/
+theorem id_and_title_anchors_differ (a b : Listing) (ha : Fits (opportunityKey a)) (hb : Fits (opportunityKey b))
+    (hka : a.anchorKind = kindId) (hkb : b.anchorKind = kindTitle) :
+    encode (opportunityKey a) ≠ encode (opportunityKey b) := by
+  intro h
+  have := (opportunity_same_iff a b ha hb).mp h
+  rw [hka, hkb] at this
+  exact absurd this.2.1 (by decide)
+
 #eval IO.println s!"VECTOR opportunity {hex (encode (opportunityKey sample))}"
+#eval IO.println s!"VECTOR untitled {hex (encode (opportunityKey untitled))}"
 #eval IO.println s!"VECTOR notice {hex (encode (noticeKey hexField sample))}"
 #eval IO.println s!"VECTOR verdict 0,0,0,0,12 {repr (verdict ⟨false, false, 0, 0, 12⟩)}"
 #eval IO.println s!"VECTOR after 3,relogin {repr (afterCrawl ⟨.relogin, 3⟩ loggedOut)}"

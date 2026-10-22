@@ -12,12 +12,14 @@ from foundry.core.models import FileLink, Listing
 
 class StoredFile(BaseModel, frozen=True):
     """An attachment as stored: `file_id` is its link's id (see `ScrapedNotice.files_key`), `sha256` the hash of the
-    bytes when the download worked."""
+    bytes when the download worked (and the file's key in the bucket), `etag` the portal's own ETag for it, if it
+    sent one."""
 
     file_id: str
     name: str
     url: str
     sha256: str | None
+    etag: str | None
     content_type: str | None
     size: int
 
@@ -36,8 +38,17 @@ class ScrapedNotice(BaseModel, frozen=True):
         return Key.of("file", [link.url, link.name]).digest
 
     @property
+    def anchor(self) -> tuple[str, str]:
+        """What ties scrapes of one opportunity together (formal/foundry_rules `kindId`, `kindTitle`): the portal's own
+        id, or, when it shows none, the title with case and spacing evened out, so a retitled listing then counts as a
+        new opportunity."""
+        if self.listing.external_id is not None:
+            return ("id", self.listing.external_id)
+        return ("title", " ".join(self.listing.title.lower().split()))
+
+    @property
     def opportunity_id(self) -> str:
-        return Key.of("opportunity", [str(self.source_id), self.listing.external_id]).digest
+        return Key.of("opportunity", [str(self.source_id), *self.anchor]).digest
 
     @property
     def canonical_metadata(self) -> str:
@@ -51,7 +62,7 @@ class ScrapedNotice(BaseModel, frozen=True):
     def notice_id(self) -> str:
         listing = self.listing
         due_at = listing.due_at.isoformat() if listing.due_at is not None else ""
-        fields = [str(self.source_id), listing.external_id, listing.title, due_at, listing.description]
+        fields = [str(self.source_id), *self.anchor, listing.title, due_at, listing.description]
         return Key.of("notice", [*fields, self.canonical_metadata, *self.files_key]).digest
 
     @property
@@ -112,6 +123,7 @@ class FileView(BaseModel):
     name: str
     url: str
     sha256: str | None
+    etag: str | None
     content_type: str | None
     size: int
 
@@ -121,7 +133,7 @@ class NoticeView(BaseModel):
 
     notice_id: str
     opportunity_id: str
-    external_id: str
+    external_id: str | None
     url: str
     title: str
     buyer: str | None

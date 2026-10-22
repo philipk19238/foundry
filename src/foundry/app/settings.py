@@ -44,6 +44,7 @@ class Settings(BaseSettings):
     kernel_api_key: SecretStr
     knock_secret_key: SecretStr
     knock_workflow: str = "foundry-help-requested"
+    knock_message_workflow: str = "foundry-agent-message"
     agentmail_api_key: SecretStr | None = None
 
     seed_email: str | None = None

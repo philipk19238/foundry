@@ -5,7 +5,7 @@
   <div>
     <h1>✋ {{ source.name }}</h1>
     <p>{{ request_.reason }}</p>
-    <a class="muted small" href="/runs/{{ run.id }}">See the run's timeline →</a>
+    <a class="muted small" href="/runs/{{ run.id }}">← Back to the run's chat</a>
   </div>
   <div class="facts">{% with value=request_.status %}{% include "_status.html" %}{% endwith %}<span class="small muted">expires {{ request_.expires_at.strftime("%H:%M UTC") }}</span></div>
 </section>

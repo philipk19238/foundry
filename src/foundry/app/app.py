@@ -14,7 +14,7 @@ from knockapi import AsyncKnock
 from pydantic import JsonValue
 
 from foundry.app import exceptions
-from foundry.app.agent.agent import Agent, Codex, Narrator, Proposals, Workspaces
+from foundry.app.agent.agent import Agent, Codex, Inbox, Narrator, Proposals, Workspaces
 from foundry.app.agent.models import outcomes, tasks
 from foundry.app.auth.auth import Logins, Users
 from foundry.app.browser.browser import Accounts, Browsers
@@ -29,7 +29,7 @@ from foundry.app.db.models.runs import RunKind, RunStatus
 from foundry.app.files.client import FolderBucket, R2Bucket
 from foundry.app.files.models import Bucket
 from foundry.app.help.client import KnockNotifier
-from foundry.app.help.help import HelpDesk, HelpQueue
+from foundry.app.help.help import HelpDesk, HelpQueue, RunChat
 from foundry.app.help.models import Notifier
 from foundry.app.repo.client import GitHubPulls
 from foundry.app.repo.repo import Clones, Git, Mirror
@@ -244,7 +244,7 @@ def register(registry: svcs.Registry) -> None:
     registry.register_value(Settings, settings)
     registry.register_value(PasswordHasher, PasswordHasher())
     registry.register_value(Fernet, Fernet(settings.credentials_key.get_secret_value()))
-    registry.register_value(Notifier, KnockNotifier(knock, settings.knock_workflow))
+    registry.register_value(Notifier, KnockNotifier(knock, settings))
     registry.register_value(Crawls, Crawls())
     match settings.files_storage:
         case "folder":
@@ -256,8 +256,8 @@ def register(registry: svcs.Registry) -> None:
     registry.register_value(Mirror, mirror)
     registry.register_value(Clones, Clones(git, mirror, settings))
     services = (
-        Users, Logins, Catalog, Timeline, Leases, Runs, RunHistory, HelpQueue, HelpDesk, Browsers, Accounts,
-        Workspaces, Narrator, Codex, Versions, Healths, Downloads, GitHubPulls, Proposals, Agent, Refresher,
+        Users, Logins, Catalog, Timeline, Leases, Runs, RunHistory, HelpQueue, RunChat, HelpDesk, Browsers, Accounts,
+        Workspaces, Narrator, Inbox, Codex, Versions, Healths, Downloads, GitHubPulls, Proposals, Agent, Refresher,
     )  # fmt: skip
     for service in services:
         registry.register_factory(service, svcs.aautowire(service))

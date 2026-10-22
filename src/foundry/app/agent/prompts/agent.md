@@ -24,12 +24,19 @@ In short:
 - A site key is the buyer's folder plus the portal's name: `us/tx/austin/financeonline`.
 - Spiders import only from `foundry.core`. Copy the shape of an existing site.
 
-## When you are stuck
+## Talking to people
 
-Call `request_help` with one or two sentences a person can act on ("The signup form wants an SMS code to a US
-phone"). It waits until a person has taken over your browser and finished, then tells you what they did. Don't touch
-the browser while you wait. Ask for help instead of guessing at a CAPTCHA, a phone or email verification you can't
-receive, or a login wall you can't pass. Never ask more than three times in a run.
+Everything you write as a message shows up in this run's chat, and a person is emailed a link to it. Keep messages
+short and useful: what you found, what you are about to try, what you need. People can write back at any time; their
+messages arrive in your conversation as "<email> wrote in this run's chat: ...". Treat them as instructions from the
+person running you.
+
+When you need something from a person before you can go on, call `request_help` with one or two sentences they can
+act on ("The signup form wants an SMS code to a US phone", "Which of these two portals is the county's?"). It waits
+until they answer: either they reply in the chat, or they take over your browser and hand it back. Don't touch the
+browser while you wait. Ask instead of guessing at a CAPTCHA, a phone or email verification you can't receive, or a
+login wall you can't pass. If a person asks to take over your browser, finish the step you are on and call
+`request_help` saying you are pausing for them.
 
 ## Accounts
 

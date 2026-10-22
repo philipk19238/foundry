@@ -10,13 +10,13 @@ detects sorted_canonFiles
 
 mutation the notice key forgets the due date
 detects notice_same_iff
--   [tagNotice, l.source, l.externalId, l.title, l.dueAt, l.description, l.metadata]
-+   [tagNotice, l.source, l.externalId, l.title, l.description, l.metadata]
+-   [tagNotice, l.source, l.anchorKind, l.anchor, l.title, l.dueAt, l.description, l.metadata]
++   [tagNotice, l.source, l.anchorKind, l.anchor, l.title, l.description, l.metadata]
 
 mutation the opportunity key includes the title
 detects opportunity_ignores_dynamic
-- def opportunityKey (l : Listing) : List Bytes := [tagOpportunity, l.source, l.externalId]
-+ def opportunityKey (l : Listing) : List Bytes := [tagOpportunity, l.source, l.externalId, l.title]
+- def opportunityKey (l : Listing) : List Bytes := [tagOpportunity, l.source, l.anchorKind, l.anchor]
++ def opportunityKey (l : Listing) : List Bytes := [tagOpportunity, l.source, l.anchorKind, l.anchor, l.title]
 
 mutation ingest overwrites instead of skipping
 detects ingestAll_idempotent
@@ -39,3 +39,8 @@ mutation a relogin stops spending the budget
 detects relogin_loop_reaches_human
 -   | .relogin => if h.heals < maxHeals then ⟨.relogin, h.heals + 1⟩ else ⟨.needsHuman, h.heals⟩
 +   | .relogin => ⟨.relogin, h.heals⟩
+
+mutation the anchor drops its kind
+detects opportunity_same_iff
+- def opportunityKey (l : Listing) : List Bytes := [tagOpportunity, l.source, l.anchorKind, l.anchor]
++ def opportunityKey (l : Listing) : List Bytes := [tagOpportunity, l.source, l.anchor]

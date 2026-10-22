@@ -17,9 +17,10 @@ class FileLink(BaseModel, frozen=True):
 
 class Listing(BaseModel, frozen=True):
     """What a scraper yields for one opportunity on its portal. `external_id` is the portal's own id for it (a
-    solicitation number, or the detail page's id): it must stay the same when the portal edits the listing."""
+    solicitation number, or the detail page's id): it must stay the same when the portal edits the listing. Leave it
+    out only when the portal shows none; the title then stands in for it."""
 
-    external_id: str = Field(min_length=1)
+    external_id: str | None = Field(default=None, min_length=1)
     url: str
     title: str = Field(min_length=1)
     buyer: str | None = None

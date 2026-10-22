@@ -116,6 +116,14 @@ Done(h, r) ==
     /\ help' = [help EXCEPT ![r] = "done"] /\ acked' = [acked EXCEPT ![r] = TRUE]
     /\ UNCHANGED <<lease, pc, mine, claimer, helpTtl, answer, staleWrite, restart>>
 
+\* help/store.py _ANSWER (HelpQueue.say): a chat reply answers the request if it is open or this helper holds it; one
+\* that someone else holds stays theirs, since they are driving the browser
+Answer(h, r) ==
+    /\ (help[r] = "open" \/ (help[r] = "claimed" /\ claimer[r] = h)) /\ (helpTtl[r] > 0 \/ Skew)
+    /\ help' = [help EXCEPT ![r] = "done"] /\ claimer' = [claimer EXCEPT ![r] = h]
+    /\ acked' = [acked EXCEPT ![r] = TRUE]
+    /\ UNCHANGED <<lease, pc, mine, helpTtl, answer, staleWrite, restart>>
+
 \* help.py HelpDesk._answer: read the request
 Poll(r) ==
     /\ pc[r] = "waiting"
@@ -169,7 +177,7 @@ DeployFails(r) ==
 
 Agent(r) == Claim(r) \/ Skip(r) \/ Renew(r) \/ Write(r) \/ Ask(r) \/ Poll(r) \/ Expire(r) \/ Finish(r) \/ Stop(r)
             \/ AskRestart(r) \/ Redeploy(r) \/ DeployFails(r)
-Person(r) == \E h \in Helpers : TakeOver(h, r) \/ GiveBack(h, r) \/ Done(h, r)
+Person(r) == \E h \in Helpers : TakeOver(h, r) \/ GiveBack(h, r) \/ Done(h, r) \/ Answer(h, r)
 
 \* Every run has ended: nothing left to do.
 Finished == (\A r \in Runs : pc[r] = "done") /\ UNCHANGED vars
