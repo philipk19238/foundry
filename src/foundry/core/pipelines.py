@@ -62,8 +62,10 @@ class FilesPipeline:
         assert isinstance(spider, PortalSpider)
         request = spider.file_request(link, listing)
         request = request.replace(meta={**request.meta, FILE: True})
-        response, problem = await self._fetched(request.replace(meta={**request.meta, PLAIN: True}), link)
-        if problem is not None and not request.meta.get("browser"):
+        plain = not request.meta.get("browser")
+        first = request.replace(meta={**request.meta, PLAIN: True}) if plain else request
+        response, problem = await self._fetched(first, link)
+        if problem is not None and plain:
             response, problem = await self._fetched(request, link)
         if problem is not None or response is None:
             self._failed(link, problem or "no response")
