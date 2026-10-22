@@ -1,4 +1,9 @@
 <section class="data">
+  {% set scraping = progress.runs | selectattr("kind", "equalto", "refresh") | selectattr("is_active") | first %}
+  {% if scraping %}
+  <div class="scraping"><span class="pill running">Scraping</span> <span class="small muted">Saving what's new as it goes.</span></div>
+  {% with run=scraping, poll=true %}{% include "_crawl_progress.html" %}{% endwith %}
+  {% endif %}
   {% if rows %}
   <ul class="listings">
     {% for row in rows %}{% with across=false %}{% include "_opportunity.html" %}{% endwith %}{% endfor %}

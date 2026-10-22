@@ -1,0 +1,25 @@
+{% set driving = help | selectattr("status", "equalto", "claimed") | selectattr("claimed_by", "equalto", user.id) | first %}
+{% set asking = help | selectattr("status", "equalto", "open") | first %}
+<div class="b-view">
+  {% if driving %}
+    <div class="b-bar"><span class="c-pulse" aria-hidden="true"></span><b>You're driving.</b><span class="muted">The agent waits until you hand it back.</span>
+      <span class="b-open"><button type="button" class="btn ghost xs" onclick="document.getElementById('live').requestFullscreen()">Full screen</button>
+      <a class="btn ghost xs" href="{{ driving.live_view_url }}" target="_blank" rel="noopener">New tab ↗</a></span></div>
+    <iframe id="live" src="{{ driving.live_view_url }}" title="The agent's browser" allow="clipboard-read; clipboard-write"></iframe>
+    <form class="b-done" method="post" action="/help/{{ driving.id }}/done">
+      <input name="note" placeholder="A note for the agent: what you did, what to do next">
+      <button class="btn primary sm">Done, hand it back</button>
+    </form>
+    <form method="post" action="/help/{{ driving.id }}/give-back"><button class="c-link quiet">Give it back without finishing</button></form>
+  {% elif run and run.live_view_url %}
+    {% set url = run.live_view_url ~ ("&" if "?" in run.live_view_url else "?") ~ "readOnly=true" %}
+    <div class="b-bar"><span class="muted">Watching the agent's browser.</span>
+      <span class="b-open">
+        {% if asking %}<form method="post" action="/help/{{ asking.id }}/claim"><button class="btn primary xs">Take over</button></form>{% endif %}
+        <button type="button" class="btn ghost xs" onclick="document.getElementById('live').requestFullscreen()">Full screen</button>
+        <a class="btn ghost xs" href="{{ url }}" target="_blank" rel="noopener">New tab ↗</a></span></div>
+    <iframe id="live" src="{{ url }}" title="The agent's browser, view only"></iframe>
+  {% else %}
+    <p class="c-empty">The agent's browser shows here while it works.</p>
+  {% endif %}
+</div>

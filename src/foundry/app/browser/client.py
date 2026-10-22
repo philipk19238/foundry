@@ -6,14 +6,17 @@ from kernel import AsyncKernel, ConflictError, NotFoundError
 from foundry.app import exceptions
 from foundry.app.browser import models
 
-IDLE_SECONDS = 3600
+AGENT_IDLE_SECONDS = 600
+CRAWL_IDLE_SECONDS = 120
 PROXY = "foundry-residential-us"
 
 
 class KernelBrowserApi:
     """Kernel's browsers API. Each source has one profile, `foundry-<source id>`, made on first use, and every
     browser leaves through one US residential proxy, also made on first use: state and local portals often refuse
-    datacenter and foreign addresses."""
+    datacenter and foreign addresses. Kernel deletes a browser nobody has connected to for its idle timeout, so one a
+    dead worker left behind stops costing within minutes: a crawl's stays connected for the whole crawl, an agent's
+    is idle only while the agent thinks or waits for a person."""
 
     def __init__(self, kernel: AsyncKernel) -> None:
         self._kernel = kernel
@@ -25,7 +28,7 @@ class KernelBrowserApi:
         browser = await self._kernel.browsers.create(
             stealth=True,
             headless=False,
-            timeout_seconds=IDLE_SECONDS,
+            timeout_seconds=AGENT_IDLE_SECONDS,
             profile={"name": profile, "save_changes": True},
             proxy_id=await self.proxy(),
             tags={"app": "foundry", "source": str(source_id)},
@@ -41,7 +44,7 @@ class KernelBrowserApi:
         browser = await self._kernel.browsers.create(
             stealth=True,
             headless=False,
-            timeout_seconds=IDLE_SECONDS,
+            timeout_seconds=CRAWL_IDLE_SECONDS,
             proxy_id=await self.proxy(),
             tags={"app": "foundry", "source": str(source_id), "use": "crawl"},
         )

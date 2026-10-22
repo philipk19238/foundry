@@ -4,8 +4,10 @@ every portal, so a spider holds only what is particular to its site or platform.
 
 import asyncio
 import base64
+import datetime as dt
+import hashlib
 import json
-from collections.abc import Iterable, Iterator
+from collections.abc import AsyncIterator, Iterable, Iterator
 from pathlib import Path
 from types import ModuleType
 from typing import TextIO, TypedDict
@@ -23,12 +25,20 @@ from scrapy.responsetypes import responsetypes
 from scrapy.statscollectors import StatsCollector
 
 from foundry.core import challenges, pace
-from foundry.core.models import Fixture, Listing, Session
+from foundry.core.models import CrawlProgress, FileLink, Fixture, Listing, SavedFile, Session
 from foundry.core.pace import Pace
 
 LOGGED_OUT = "foundry/logged_out"
 REFUSED = "foundry/refused"
 CHALLENGED = "foundry/challenged"
+FILES_SAVED = "foundry/files_saved"
+FILES_FAILED = "foundry/files_failed"
+FAILURES_KEPT = 5
+PROGRESS_SECONDS = 5.0
+HTTP_ERROR = 400
+REQUESTS = "downloader/request_count"
+BLANK_PATH = "__foundry__"
+BLANK_PAGE = "<!doctype html><title>foundry</title>"
 VALID = "foundry/valid"
 INVALID = "foundry/invalid"
 UNMATCHED = "foundry/unmatched"
@@ -47,10 +57,36 @@ class PortalSpider(scrapy.Spider):
 
     A portal that puts bot checks in front of its pages sets `solve = True` (or `meta={"solve": True}` on the
     requests that meet them): a live crawl then waits for the stealth browser to clear each check and sends the
-    request again. Without it a check stops that request, and the crawl reports where."""
+    request again. Without it a check stops that request, and the crawl reports where.
+
+    Everything else the kit does for every portal (pace, downloads, resuming a killed crawl) has a default that is
+    the best practice, and a hook for a portal that needs otherwise:
+
+    - `file_request` and `file_problem`: how an attachment is downloaded, and what counts as having got it;
+    - `custom_settings`: Scrapy's settings, such as `CONCURRENT_REQUESTS_PER_DOMAIN` for how many requests the
+      portal takes at once (the pace between them is `delay` in `buyer.toml`, and `stall` there is how long a crawl
+      may wait before it counts as stuck);
+    - `start`: sent again whenever a killed crawl carries on, so set what the spider learns once (a tenant's name,
+      its time zone) there or in `cb_kwargs`, never only in a callback a resumed crawl skips."""
 
     tenant: str = ""
     solve: bool = False
+
+    def file_request(self, link: FileLink, listing: Listing) -> Request:
+        """How a live crawl downloads one attachment: a GET of its link from the listing's page, by default. Override
+        it for a portal whose files take something else (a POST, a token from the page, a two-step download)."""
+        return Request(link.url, headers={"Referer": listing.url}, dont_filter=True, meta={"solve": self.solve})
+
+    def file_problem(self, link: FileLink, response: Response) -> str | None:
+        """Why a download is not the file, or None when it is. By default an error status, or a web page for a link
+        that isn't one (a viewer, a login, an expired-link notice). Override it for a portal that serves files oddly,
+        such as a download page that is the file, or a 200 with an error in the body."""
+        if response.status >= HTTP_ERROR:
+            return f"status {response.status}"
+        kind = (response.headers.get("Content-Type") or b"").decode().lower()
+        if "html" in kind and not link.name.lower().endswith((".htm", ".html")):
+            return "got a web page, not the file"
+        return None
 
     custom_settings = {
         "ROBOTSTXT_OBEY": False,
@@ -231,6 +267,7 @@ class BrowserMiddleware:
                 got = await self._fetch(self._home, sent)
             wait = pace.retry_after(got["status"], dict(got["headers"]))
             if wait is None:
+                self._pace.went_through(site)
                 return got
             await asyncio.sleep(self._pace.limited(site, wait))
         return got
@@ -257,13 +294,20 @@ class BrowserMiddleware:
             self._solved_at = asyncio.get_running_loop().time()
 
     async def _page(self, url: str) -> Page:
-        """The page fetches run from for `url`'s site, opened on first use and kept for the crawl."""
+        """The page fetches run from for `url`'s site, opened on first use and kept for the crawl: the portal's own
+        page for its site, so its bot checks are passed, and for any other site (a file host, a CDN) an empty page
+        foundry serves at that site's address, which no redirect can take away and which never touches the site."""
         site = "{0.scheme}://{0.netloc}".format(urlsplit(url))
         async with self._lock:
             if site not in self._pages:
                 context = (await self._connected()).contexts[0]
                 page = await context.new_page()
-                await page.goto(url if url == self._home else f"{site}/", wait_until="load")
+                if url == self._home:
+                    await page.goto(url, wait_until="load")
+                else:
+                    blank = f"{site}/{BLANK_PATH}"
+                    await page.route(blank, lambda route: route.fulfill(content_type="text/html", body=BLANK_PAGE))
+                    await page.goto(blank)
                 self._pages[site] = page
             return self._pages[site]
 
@@ -334,6 +378,141 @@ class ErrorsMiddleware:
         return None
 
 
+class ResumeMiddleware:
+    """A resumed crawl skips every request it already sent, start requests included, so a spider that learns what it
+    needs on its first page (a tenant's name, its time zone) would never learn it again. Start requests are always
+    sent, and what follows them is skipped as before."""
+
+    async def process_start(self, start: AsyncIterator[object]) -> AsyncIterator[object]:
+        async for item in start:
+            yield item.replace(dont_filter=True) if isinstance(item, Request) else item
+
+
+class FilesPipeline:
+    """Downloads every attachment of every good listing while the crawl runs, through the same stealth browser and
+    pace as its pages, so links that expire (presigned URLs) are fetched while they still work. Each file is written
+    to the crawl's files folder under the SHA-256 of its bytes and logged in `files.jsonl` for foundry to upload as it
+    goes. Files foundry already has are skipped; a download that fails is counted and the listing kept."""
+
+    def __init__(self, crawler: Crawler, folder: Path, known: set[str]) -> None:
+        assert crawler.stats is not None
+        self._crawler = crawler
+        self._stats = crawler.stats
+        self._folder = folder
+        log = folder / "files.jsonl"
+        saved = log.read_text().splitlines() if log.exists() else []
+        self._known = known | {SavedFile.model_validate_json(line).url for line in saved if line.strip()}
+        self._log = log.open("a")
+
+    @classmethod
+    def from_crawler(cls, crawler: Crawler) -> "FilesPipeline":
+        folder = crawler.settings.get("FOUNDRY_FILES")
+        if not folder:
+            raise NotConfigured("no files folder for this crawl")
+        return cls(crawler, Path(folder), set(crawler.settings.getlist("FOUNDRY_KNOWN_FILES")))
+
+    def close_spider(self) -> None:
+        self._log.close()
+
+    async def process_item(self, item: Listing | dict[str, object]) -> Listing | dict[str, object]:
+        try:
+            listing = item if isinstance(item, Listing) else Listing.model_validate(item)
+        except ValidationError:
+            return item
+        spider = self._crawler.spider
+        assert isinstance(spider, PortalSpider) and self._crawler.engine is not None
+        for link in listing.files:
+            if link.url in self._known:
+                continue
+            self._known.add(link.url)
+            try:
+                response = await self._crawler.engine.download_async(spider.file_request(link, listing))
+            except Exception as error:  # noqa: BLE001 - any failed download is counted, never fatal
+                self._failed(link, repr(error))
+                continue
+            if (problem := spider.file_problem(link, response)) is not None:
+                self._failed(link, problem)
+                continue
+            digest = hashlib.sha256(response.body).hexdigest()
+            (self._folder / digest).write_bytes(response.body)
+            kind = response.headers.get("Content-Type")
+            saved = SavedFile(
+                url=link.url, name=link.name, sha256=digest, content_type=kind.decode() if kind else None,
+                size=len(response.body),
+            )  # fmt: skip
+            self._log.write(saved.model_dump_json() + "\n")
+            self._log.flush()
+            self._stats.inc_value(FILES_SAVED)
+        return item
+
+    def _failed(self, link: FileLink, why: str) -> None:
+        self._stats.inc_value(FILES_FAILED)
+        if (count := self._stats.get_value(FILES_FAILED, 0)) <= FAILURES_KEPT:
+            self._stats.set_value(f"{EXAMPLE}file/{count}", f"{link.url}: download failed, {why}"[:500])
+
+
+class ProgressExtension:
+    """Writes the crawl's progress (`CrawlProgress`) every PROGRESS_SECONDS while it runs, and once more at the end."""
+
+    def __init__(self, crawler: Crawler, path: Path) -> None:
+        assert crawler.stats is not None
+        self._stats = crawler.stats
+        self._path = path
+        self._last_url = ""
+        self._beating: asyncio.Task[None] | None = None
+        crawler.signals.connect(self.opened, signal=signals.spider_opened)
+        crawler.signals.connect(self.closed, signal=signals.spider_closed)
+        crawler.signals.connect(self.received, signal=signals.response_received)
+
+    @classmethod
+    def from_crawler(cls, crawler: Crawler) -> "ProgressExtension":
+        path = crawler.settings.get("FOUNDRY_PROGRESS")
+        if not path:
+            raise NotConfigured("no progress file for this crawl")
+        return cls(crawler, Path(path))
+
+    def opened(self) -> None:
+        """A resumed crawl counts on from where the killed one got to, so its totals cover the whole crawl."""
+        if self._path.exists():
+            before = CrawlProgress.model_validate_json(self._path.read_text())
+            counted = {
+                VALID: before.listings, INVALID: before.invalid, REQUESTS: before.requests,
+                FILES_SAVED: before.files_saved, FILES_FAILED: before.files_failed,
+                pace.RATE_LIMITED: before.rate_limited, CHALLENGED: before.challenged,
+            }  # fmt: skip
+            for key, value in counted.items():
+                self._stats.inc_value(key, value)
+        self._beating = asyncio.get_running_loop().create_task(self._beat())
+
+    def received(self, response: Response) -> None:
+        self._last_url = response.url
+
+    def closed(self) -> None:
+        if self._beating is not None:
+            self._beating.cancel()
+        self._write()
+
+    async def _beat(self) -> None:
+        while True:
+            self._write()
+            await asyncio.sleep(PROGRESS_SECONDS)
+
+    def _write(self) -> None:
+        stats = self._stats
+        progress = CrawlProgress(
+            listings=stats.get_value(VALID, 0),
+            invalid=stats.get_value(INVALID, 0),
+            requests=stats.get_value(REQUESTS, 0),
+            files_saved=stats.get_value(FILES_SAVED, 0),
+            files_failed=stats.get_value(FILES_FAILED, 0),
+            rate_limited=stats.get_value(pace.RATE_LIMITED, 0),
+            challenged=stats.get_value(CHALLENGED, 0),
+            last_url=self._last_url,
+            at=dt.datetime.now(dt.UTC),
+        )
+        self._path.write_text(progress.model_dump_json())
+
+
 class ListingPipeline:
     """Validates every item as a `Listing` and writes the good ones out, one JSON line each; a bad item is counted,
     never stored."""
@@ -345,7 +524,7 @@ class ListingPipeline:
     @classmethod
     def from_crawler(cls, crawler: Crawler) -> "ListingPipeline":
         assert crawler.stats is not None
-        return cls(crawler.stats, Path(crawler.settings.get("FOUNDRY_LISTINGS")).open("w"))
+        return cls(crawler.stats, Path(crawler.settings.get("FOUNDRY_LISTINGS")).open("a"))
 
     def close_spider(self) -> None:
         self._output.close()
@@ -359,6 +538,7 @@ class ListingPipeline:
             return None
         self._stats.inc_value(VALID)
         self._output.write(listing.model_dump_json() + "\n")
+        self._output.flush()
         return listing
 
 

@@ -5,7 +5,9 @@ from typing import Protocol
 
 from pydantic import BaseModel, ConfigDict, JsonValue
 
+from foundry.app.db.db import now
 from foundry.app.db.models.runs import RunKind, RunStatus
+from foundry.core.models import CrawlProgress
 
 
 class EventKind(enum.StrEnum):
@@ -22,6 +24,7 @@ class EventKind(enum.StrEnum):
     ERROR = "error"
 
 
+QUIET = dt.timedelta(minutes=1)
 ACTIVE = (RunStatus.QUEUED, RunStatus.DEFERRED, RunStatus.RUNNING, RunStatus.WAITING, RunStatus.RESTARTING)
 
 
@@ -38,6 +41,9 @@ class RunView(BaseModel):
     created_at: dt.datetime
     started_at: dt.datetime | None
     finished_at: dt.datetime | None
+    attempts: int
+    beat_at: dt.datetime | None
+    live_view_url: str | None
 
     @property
     def has_agent(self) -> bool:
@@ -47,6 +53,20 @@ class RunView(BaseModel):
     @property
     def is_active(self) -> bool:
         return self.status in ACTIVE
+
+    @property
+    def progress(self) -> CrawlProgress | None:
+        """How far a crawl has got: written as it goes, until the run's final stats replace it."""
+        found = (self.stats or {}).get("progress")
+        return CrawlProgress.model_validate(found) if found is not None else None
+
+    @property
+    def quiet(self) -> bool:
+        """A running crawl that stopped beating: its worker is likely gone or stuck, and a person may restart it."""
+        return (
+            self.kind.crawls and self.status == RunStatus.RUNNING and self.beat_at is not None
+            and now() - self.beat_at > QUIET
+        )  # fmt: skip
 
 
 CHAT = (EventKind.MESSAGE, EventKind.PERSON, EventKind.ANSWER, EventKind.HELP, EventKind.NOTE)

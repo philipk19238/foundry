@@ -11,6 +11,7 @@
   {% if tried.running %}
     {% set began = tried.running.started_at or tried.running.created_at %}
     <p class="empty">Scraping the live portal with v{{ newest.version }}, since {{ began.strftime("%H:%M") }} UTC. A big portal can take a while; results show up here when it finishes{% if newest.state == "proposed" %}, and on the pull request{% endif %}.</p>
+    {% with run=tried.running, poll=false %}{% include "_crawl_progress.html" %}{% endwith %}
   {% elif tried.trial %}
     {% set trial = tried.trial %}
     {% set crawl = trial.crawl %}
@@ -53,6 +54,7 @@
     {% endif %}
   {% elif tried.finished %}
     <p class="empty">The last test ended without results: {{ tried.finished.summary or tried.finished.status }}.</p>
+    {% if tried.finished.status == "failed" %}{% with run=tried.finished, poll=false %}{% include "_crawl_progress.html" %}{% endwith %}{% endif %}
   {% else %}
     <p class="empty">Not tested yet. Run a test scrape to see what v{{ newest.version }} finds.</p>
   {% endif %}

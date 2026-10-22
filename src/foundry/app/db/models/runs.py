@@ -25,6 +25,11 @@ class RunKind(enum.StrEnum):
         return self in (RunKind.ONBOARD, RunKind.HEAL, RunKind.RELOGIN)
 
     @property
+    def crawls(self) -> bool:
+        """A crawl of the live portal, which beats as it goes and carries on where it stopped when run again."""
+        return self in (RunKind.REFRESH, RunKind.TRIAL)
+
+    @property
     def leased(self) -> bool:
         """Whether the run holds the source while it works. A test crawl writes nothing, so it runs beside others."""
         return self != RunKind.TRIAL
@@ -58,7 +63,9 @@ class RunStatus(enum.StrEnum):
 
 
 class Run(Base):
-    """One job on one source: an agent session (onboard, heal, relogin) or a scheduled crawl (refresh)."""
+    """One job on one source: an agent session (onboard, heal, relogin) or a scheduled crawl (refresh). A crawl
+    records `beat_at` as it goes, and `attempts` counts how often it was carried on after its worker died or it
+    stalled; only the newest attempt may beat. `live_view_url` is the agent's browser while it has one open."""
 
     __tablename__ = "runs"
     __table_args__ = (
@@ -76,6 +83,9 @@ class Run(Base):
     created_at: Mapped[dt.datetime] = mapped_column(UtcDateTime)
     started_at: Mapped[dt.datetime | None] = mapped_column(UtcDateTime)
     finished_at: Mapped[dt.datetime | None] = mapped_column(UtcDateTime)
+    attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    beat_at: Mapped[dt.datetime | None] = mapped_column(UtcDateTime)
+    live_view_url: Mapped[str | None] = mapped_column(String(2048))
 
 
 class Event(Base):

@@ -6,10 +6,12 @@ from pydantic import BaseModel
 from foundry.app.auth.models import UserView
 from foundry.app.catalog.models import SourceView
 from foundry.app.db.models.runs import RunStatus
+from foundry.app.help.help import HelpQueue
 from foundry.app.help.models import HelpView
 from foundry.app.progress.models import Progress, Stage, TrialView
 from foundry.app.progress.progress import Tracker
 from foundry.app.runs.models import EventView, RunView
+from foundry.app.runs.runs import Timeline
 from foundry.app.scrapers.models import ScraperView
 from foundry.app.settings import Settings
 
@@ -61,14 +63,22 @@ class RunLines(BaseModel):
 
 class ScraperPage(BaseModel):
     """What every tab of a scraper's page shows around its own content: who is looking, where the scraper stands,
-    which tab is open, and the repo its pull requests are on."""
+    which panel tab is open, the repo its pull requests are on, and the conversation with its agent, which sits
+    beside every tab."""
 
     user: UserView
     progress: Progress
     tab: str
     repo: str
+    events: list[EventView] = []
+    help: list[HelpView] = []
 
     @classmethod
     async def from_container(cls, container: svcs.Container, source_id: uuid.UUID, tab: str) -> "ScraperPage":
-        user, tracker, settings = await container.aget(UserView, Tracker, Settings)
-        return cls(user=user, progress=await tracker.progress(source_id), tab=tab, repo=settings.repo)
+        user, tracker, settings, timeline, desk = await container.aget(UserView, Tracker, Settings, Timeline, HelpQueue)
+        progress = await tracker.progress(source_id)
+        page = cls(user=user, progress=progress, tab=tab, repo=settings.repo)
+        if progress.agent is None:
+            return page
+        events = await timeline.since(progress.agent.id, 0)
+        return page.model_copy(update={"events": events, "help": await desk.of_run(progress.agent.id)})

@@ -1,14 +1,15 @@
 import datetime as dt
 import enum
 import uuid
-from typing import assert_never
+from pathlib import Path
+from typing import Protocol, assert_never
 
 from pydantic import BaseModel, ConfigDict, TypeAdapter
 
 from foundry.app.catalog.models import IngestCounts
 from foundry.app.db.models.catalog import ScraperState, SourceStatus
 from foundry.app.db.models.runs import RunKind
-from foundry.core.models import CrawlJob, CrawlStats, Fixture, Listing, Session
+from foundry.core.models import CrawlJob, CrawlProgress, CrawlStats, Fixture, Listing, SavedFile, Session
 
 MAX_HEALS = 3
 FIXTURES = TypeAdapter(list[Fixture])
@@ -142,6 +143,29 @@ class CrawlReport(BaseModel, frozen=True):
     listings: tuple[Listing, ...]
     crawl: Crawl
     session: Session | None = None
+    files: dict[str, SavedFile] = {}
+
+
+class CrawlWatch(Protocol):
+    """The run a live crawl belongs to, told how far the crawl has got every few seconds."""
+
+    @property
+    def run_id(self) -> uuid.UUID: ...
+
+    async def beat(self, progress: CrawlProgress) -> bool:
+        """False once the crawl should stop: a person restarted it, or the run ended."""
+        ...
+
+
+class CrawlState(Protocol):
+    """Where a live crawl keeps what must outlive its worker (the requests still to send, the listings so far, files
+    not yet uploaded), one folder per run, so the run's next attempt carries on there."""
+
+    def folder(self, run_id: uuid.UUID) -> Path: ...
+
+    async def keep(self) -> None:
+        """Makes what was written so far survive this worker."""
+        ...
 
 
 class RefreshReport(BaseModel, frozen=True):

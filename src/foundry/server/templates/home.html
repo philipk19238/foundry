@@ -15,7 +15,7 @@
   {% endif %}
 
   {% if user.is_admin %}
-  <form method="post" action="/sources" class="ask">
+  <form method="post" action="/sources" class="ask" id="new">
     <input name="url" type="url" placeholder="Paste a portal's listing URL" required aria-label="Portal URL">
     <button class="btn">Build a scraper</button>
   </form>

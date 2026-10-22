@@ -2,93 +2,69 @@
 {% set source = progress.source %}
 {% set newest = progress.newest %}
 {% set stage = progress.stage %}
+{% set run = progress.agent %}
 {% set base = "/sources/" ~ source.id %}
 {% block title %}{{ source.name }} · Foundry{% endblock %}
+{% block main_class %}ws-main{% endblock %}
 {% block body %}
-<div class="desk">
-  <header class="d-head">
-    <a class="d-back" href="/">Scrapers</a>
-    <h1>{{ source.name }}</h1>
-    <a class="d-url" href="{{ source.url }}" target="_blank" rel="noopener">{{ source.url }}</a>
-  </header>
-
-  <ol class="track" aria-label="Progress">
-    {% for label in ["Requested", "Building", "Ready for review", "Live"] %}
-    <li class="{{ 'done' if loop.index0 < stage.step else ('now ' ~ stage) if loop.index0 == stage.step }}"{% if loop.index0 == stage.step %} aria-current="step"{% endif %}><span>{{ label }}</span></li>
-    {% endfor %}
-  </ol>
-
-  <section class="next {{ stage }}">
-    <div class="next-text">
-      {% if stage == "building" %}
-        <h2>{{ "The agent is waiting to start" if progress.agent.status == "deferred" else "The agent is working on your scraper" }}</h2>
-        <p>{{ "Another job is using the portal. The agent starts as soon as it ends." if progress.agent.status == "deferred" else (progress.last_message | truncate(240) if progress.last_message else "It's reading the portal. Its messages show up in the conversation.") }}</p>
-      {% elif stage == "waiting" %}
-        <h2>The agent needs you</h2>
-        <p>{{ progress.question.reason | truncate(240) }}</p>
-      {% elif stage == "review" and progress.merging %}
-        <h2>Merging v{{ newest.version }}</h2>
-        <p>Foundry is registering it and running its first scrape.</p>
-      {% elif stage == "review" %}
-        <h2>v{{ newest.version }} is ready for review</h2>
-        <p>{% if user.is_admin %}Run a test scrape and read its code. Approve to merge it, or tell the agent what to change.{% else %}Run a test scrape and read its code. An admin approves it or asks the agent for changes.{% endif %}</p>
-      {% elif stage == "live" %}
-        <h2>v{{ newest.version }} is live</h2>
-        <p>{% if progress.crawling %}It's scraping the portal now.{% else %}It scrapes the portal every 6 hours. The last one found <span class="num">{{ source.previous_valid }}</span> listings.{% endif %}</p>
-      {% else %}
-        <h2>{{ "The agent stopped" if progress.agent else "No scraper yet" }}</h2>
-        <p>{{ progress.agent.summary | truncate(240) if progress.agent and progress.agent.summary else "Nothing is running. Start the agent to build one." }}</p>
-      {% endif %}
-    </div>
-    <div class="next-actions">
-      {% if stage in ("building", "waiting") and tab != "chat" %}
-        <a class="btn" href="{{ base }}/chat">{{ "Answer" if stage == "waiting" else "Open the conversation" }}</a>
-      {% elif stage == "review" and not progress.merging and user.is_admin %}
-        <form method="post" action="{{ base }}/merge" onsubmit="this.querySelector('button').disabled = true"><button class="btn">Approve and merge</button></form>
-        {% if progress.agent %}<a class="btn quiet" href="{{ base }}/chat#composer">Request changes</a>
-        {% else %}<a class="btn quiet" href="https://github.com/{{ repo }}/pull/{{ newest.pull }}" target="_blank" rel="noopener">Comment on GitHub</a>{% endif %}
-      {% elif stage == "live" and user.is_admin and progress.agent %}
-        <a class="btn quiet" href="{{ base }}/chat#composer">Request changes</a>
-      {% elif stage == "stopped" and user.is_admin %}
-        {% if progress.agent %}<a class="btn" href="{{ base }}/chat#composer">Tell the agent what to do</a>{% endif %}
-        <form method="post" action="{{ base }}/runs"><input type="hidden" name="kind" value="onboard">
-          <button class="btn {{ 'quiet' if progress.agent }}">Start over</button></form>
-      {% endif %}
-    </div>
-  </section>
-
-  <nav class="tabs">
-    {% for key, label in [("chat", "Conversation"), ("test", "Test"), ("code", "Code"), ("data", "Data"), ("access", "Access")] %}
-    {% if key not in ("test", "code") or newest %}
-    <a href="{{ base }}/{{ key }}" class="{{ 'on' if tab == key }}"{% if tab == key %} aria-current="page"{% endif %}>{{ label }}{% if key == "chat" and stage == "waiting" %} <i class="dot"></i>{% endif %}</a>
-    {% endif %}
-    {% endfor %}
-  </nav>
-
-  <div class="pane">
-  {% if tab == "chat" %}
-    {% if progress.agent %}
-      {% set run = progress.agent %}
-      <div class="pane-meta"><span class="small">{% with kind=run.kind %}{% include "_job.html" %}{% endwith %} <span class="muted">started {{ run.created_at.strftime("%b %d at %H:%M") }}</span></span><div id="run-status" class="facts">{% include "_run_status.html" %}</div></div>
+<div class="ws" id="ws">
+  <section class="ws-chat">
+    <header class="ws-head">
+      <div class="ws-title">
+        <h1 title="{{ source.url }}">{{ source.name }}</h1>
+        <span class="badge {{ stage }}">{{ stage.label }}</span>
+        {% if newest %}<a class="ws-pr" href="https://github.com/{{ repo }}/pull/{{ newest.pull }}" target="_blank" rel="noopener" title="v{{ newest.version }}'s pull request">⎇ #{{ newest.pull }}</a>{% endif %}
+      </div>
+      <div class="ws-actions">
+        <a class="btn ghost xs" href="{{ source.url }}" target="_blank" rel="noopener">Portal ↗</a>
+        {% if stage == "review" and progress.merging %}
+          <span class="badge review">Merging…</span>
+        {% elif stage == "review" and user.is_admin %}
+          <form method="post" action="{{ base }}/merge" onsubmit="this.querySelector('button').disabled = true"><button class="btn primary xs">Approve and merge</button></form>
+        {% elif stage == "stopped" and user.is_admin %}
+          <form method="post" action="{{ base }}/runs"><input type="hidden" name="kind" value="onboard"><button class="btn secondary xs">Start over</button></form>
+        {% endif %}
+      </div>
+    </header>
+    {% if run %}
       {% include "_chat.html" %}
     {% else %}
-      <p class="empty">No conversation yet. Start the agent to begin one.</p>
+      <div class="ws-thread"><p class="c-empty">No conversation yet.{% if user.is_admin %} Start the agent and it builds this portal's scraper.{% endif %}</p>
+        {% if user.is_admin %}<form method="post" action="{{ base }}/runs" class="c-start"><input type="hidden" name="kind" value="onboard"><button class="btn primary">Start the agent</button></form>{% endif %}
+      </div>
     {% endif %}
-  {% elif tab == "test" %}
-    {% include "_test.html" %}
-  {% elif tab == "code" %}
-    {% include "_code.html" %}
-  {% elif tab == "access" %}
-    {% include "_access.html" %}
-  {% else %}
-    {% include "_data.html" %}
-  {% endif %}
-  </div>
+  </section>
+
+  <section class="ws-panel" id="panel">
+    <nav class="ws-tabs">
+      {% for key, label in [("chat", "Work log"), ("browser", "Browser"), ("test", "Test"), ("code", "Code"), ("data", "Data"), ("access", "Access")] %}
+      {% if key not in ("test", "code") or newest %}
+      <a href="{{ base }}/{{ key }}" class="{{ 'on' if tab == key }}"{% if tab == key %} aria-current="page"{% endif %}>{{ label }}{% if key == "browser" and help | selectattr("status", "equalto", "open") | list %} <i class="dot"></i>{% endif %}</a>
+      {% endif %}
+      {% endfor %}
+      <button type="button" class="ws-expand" title="Widen the panel" aria-label="Widen the panel" onclick="document.getElementById('ws').classList.toggle('wide')">⤢</button>
+    </nav>
+    <div class="ws-body{{ ' flush' if tab in ('chat', 'browser') }}">
+    {% if tab == "chat" %}
+      {% include "_worklog.html" %}
+    {% elif tab == "browser" %}
+      {% include "_browser.html" %}
+    {% elif tab == "test" %}
+      {% include "_test.html" %}
+    {% elif tab == "code" %}
+      {% include "_code.html" %}
+    {% elif tab == "access" %}
+      {% include "_access.html" %}
+    {% else %}
+      {% include "_data.html" %}
+    {% endif %}
+    </div>
+  </section>
 </div>
 <script>
   (() => {
     document.addEventListener("foundry:status", () => location.reload());
-    {% if tab != "chat" and (stage in ("building", "waiting") or progress.merging or progress.crawling) %}
+    {% if not (run and run.is_active) and (stage in ("building", "waiting") or progress.merging or progress.crawling) %}
     const seen = "{{ stage }}:{{ progress.merging }}:{{ progress.crawling }}";
     const timer = setInterval(async () => {
       const now = await fetch("{{ base }}/stage").then((response) => response.text()).catch(() => seen);

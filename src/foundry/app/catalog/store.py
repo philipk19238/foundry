@@ -66,6 +66,11 @@ _OPPORTUNITIES = (
 )
 _FILES = select(File).where(File.notice_id.in_(bindparam("notices", expanding=True)))
 _FILE = select(File).where(File.notice_id == bindparam("notice"), File.file_id == bindparam("file"))
+_STORED = (
+    select(File)
+    .join(Notice, Notice.notice_id == File.notice_id)
+    .where(Notice.source_id == bindparam("source"), File.sha256.is_not(None))
+)
 
 
 async def source_at(session: AsyncSession, url: str) -> Source | None:
@@ -139,6 +144,10 @@ async def add_notices(
         await session.execute(_ADD_NOTICES, rows)
     if attachments:
         await session.execute(_ADD_FILES, attachments)
+
+
+async def stored(session: AsyncSession, source_id: uuid.UUID) -> Sequence[File]:
+    return (await session.scalars(_STORED, {"source": source_id})).all()
 
 
 async def file(session: AsyncSession, notice_id: str, file_id: str) -> File | None:

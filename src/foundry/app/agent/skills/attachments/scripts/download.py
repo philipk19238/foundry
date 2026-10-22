@@ -1,11 +1,18 @@
-"""Downloads one attachment the way foundry does after a crawl and prints what came back."""
+"""Downloads one attachment with a plain GET and prints what came back: a quick look at a link. The live crawl
+downloads every file through the stealth browser, and its `files_saved`/`files_failed` are the proof."""
 
 import asyncio
 import sys
 
 import httpx
 
-from foundry.app.scrapers.scrapers import BROWSER_HEADERS
+BROWSER_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/130.0 Safari/537.36"
+    ),
+    "Accept": "*/*",
+}
 
 
 async def main(url: str, listing: str) -> None:

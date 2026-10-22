@@ -1,0 +1,24 @@
+{# A scrape's live counts. `poll` makes it fetch itself again every 3 s while the run is active. #}
+{% set p = run.progress %}
+<div class="crawl-progress{{ ' quiet' if run.quiet }}" id="progress-{{ run.id }}"{% if poll and run.is_active %} hx-get="/runs/{{ run.id }}/progress" hx-trigger="every 3s" hx-swap="outerHTML"{% endif %}>
+  {% if p %}
+  <dl class="counts">
+    <div><dt>Listings</dt><dd class="num">{{ p.listings }}</dd></div>
+    <div><dt>Files saved</dt><dd class="num">{{ p.files_saved }}</dd></div>
+    {% if p.files_failed %}<div><dt>Files failed</dt><dd class="num">{{ p.files_failed }}</dd></div>{% endif %}
+    <div><dt>Requests</dt><dd class="num">{{ p.requests }}</dd></div>
+    {% if p.rate_limited %}<div><dt>Rate limits</dt><dd class="num">{{ p.rate_limited }}</dd></div>{% endif %}
+    {% if p.challenged %}<div><dt>Bot checks</dt><dd class="num">{{ p.challenged }}</dd></div>{% endif %}
+  </dl>
+  {% if p.last_url %}<p class="small muted last">Last fetched <code>{{ p.last_url | truncate(110) }}</code></p>{% endif %}
+  {% elif run.is_active %}
+  <p class="small muted">Opening a stealth browser on the portal…</p>
+  {% endif %}
+  {% if run.attempts %}<p class="small muted">Carried on {{ run.attempts }} time{{ "s" if run.attempts != 1 }} from where it stopped.</p>{% endif %}
+  {% if run.quiet %}
+  <p class="warn">No progress since {{ run.beat_at.strftime("%H:%M") }} UTC. Its worker may be gone; restarting carries on where it got to.</p>
+  {% endif %}
+  {% if user.is_admin and (run.quiet or run.status == "failed") and run.kind.crawls %}
+  <button class="btn quiet small" hx-post="/runs/{{ run.id }}/restart" hx-target="#progress-{{ run.id }}" hx-swap="outerHTML" hx-disabled-elt="this">Restart</button>
+  {% endif %}
+</div>

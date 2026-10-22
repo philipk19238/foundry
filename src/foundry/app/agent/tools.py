@@ -58,7 +58,7 @@ def described(report: CrawlReport) -> str:
 
 @server.tool()
 async def request_help(reason: str, ctx: Context[svcs.Registry]) -> str:
-    """Ask a person for something and wait for it (up to 45 minutes): an answer, which they give in the run's chat, or
+    """Ask a person for something and wait for it (up to 15 minutes): an answer, which they give in the run's chat, or
     a hand in your browser, which they take over and give back. Also how you ask them to review and merge a pull
     request you opened. Returns what they said."""
     async with svcs.Container(ctx.request_context.lifespan_context) as services:
@@ -69,7 +69,10 @@ async def request_help(reason: str, ctx: Context[svcs.Registry]) -> str:
             answered = note or "(no note)"
             return f"A person answered: {answered}. If they used your browser, look at the page before going on."
         case help_models.NoAnswer():
-            return "Nobody answered in time. Stop, and end with a summary of where you got stuck."
+            return (
+                "Nobody answered in time. Don't ask again: end your turn now with a summary of where you got stuck. "
+                "Ending frees your browser; a person's message in the chat carries this run on."
+            )
         case _:
             assert_never(answer)
 
