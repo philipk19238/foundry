@@ -155,3 +155,46 @@ mutation the snapshot count is partitioned by notice
 detects snapshots_counts
 -   (ns.filter fun m => m.opp == n.opp).length
 +   (ns.filter fun m => m.id == n.id).length
+
+mutation went_through drops the base floor
+detects paceStep_in_range
+- def wentThrough (ease : Nat → Nat) (base d : Nat) : Nat := max base (ease d)
++ def wentThrough (ease : Nat → Nat) (base d : Nat) : Nat := ease d
+
+mutation limited loses the SLOWEST cap
+detects limited_le_slowest
+- def limited (d ra : Nat) : Nat := min slowest (max (if d * 2 = 0 then firstSlowdown else d * 2) ra)
++ def limited (d ra : Nat) : Nat := max (if d * 2 = 0 then firstSlowdown else d * 2) ra
+
+mutation limited takes Retry-After instead of the larger wait
+detects paceStep_in_range
+- def limited (d ra : Nat) : Nat := min slowest (max (if d * 2 = 0 then firstSlowdown else d * 2) ra)
++ def limited (d ra : Nat) : Nat := min slowest (if ra = 0 then (if d * 2 = 0 then firstSlowdown else d * 2) else ra)
+
+mutation limited loses the or FIRST_SLOWDOWN
+- def limited (d ra : Nat) : Nat := min slowest (max (if d * 2 = 0 then firstSlowdown else d * 2) ra)
++ def limited (d ra : Nat) : Nat := min slowest (max (d * 2) ra)
+
+mutation easing slows the site down instead
+- def ease45 (d : Nat) : Nat := d * 4 / 5
++ def ease45 (d : Nat) : Nat := d * 5 / 4
+
+mutation the fixed limit loses its FIRST_SLOWDOWN floor
+detects limitedFixed_at_least_first
+- def limitedFixed (d ra : Nat) : Nat := min slowest (max (max (d * 2) firstSlowdown) ra)
++ def limitedFixed (d ra : Nat) : Nat := min slowest (max (d * 2) ra)
+
+mutation FilesPipeline logs the line before writing the content
+-   | some l, _ => some { w with disk := { w.disk with log := w.disk.log ++ [l] }, pending := none }
+-   | none, l :: rest => some { w with disk := { w.disk with files := addNew l.digest w.disk.files }, pending := some l, todo := rest }
++   | some l, _ => some { w with disk := { w.disk with files := addNew l.digest w.disk.files }, pending := none }
++   | none, l :: rest => some { w with disk := { w.disk with log := w.disk.log ++ [l] }, pending := some l, todo := rest }
+
+mutation Uploads.saved only records lines past the cursor
+-   w.disk.log.foldl (fun s l => addNew l.url s) w.saved
++   (w.disk.log.drop w.disk.cursor).foldl (fun s l => addNew l.url s) w.saved
+
+mutation a new attempt takes every logged line as uploaded
+-   { w with pc := .check, pending := none, todo := w.pending.toList ++ w.todo, saved := [], crashes := w.crashes + 1 }
++   { w with disk := { w.disk with cursor := w.disk.log.length }, pc := .check, pending := none, todo := w.pending.toList ++ w.todo, saved := [], crashes := w.crashes + 1 }
+

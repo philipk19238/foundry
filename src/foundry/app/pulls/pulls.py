@@ -123,23 +123,44 @@ class Reviews:
     """A person's verdict on the version in review. Approving merges its pull request on GitHub and queues the check
     that registers it, so the scraper goes live at once instead of at the next scheduled check."""
 
-    def __init__(self, versions: Versions, pulls: GitHubPulls, queue: Queue, history: RunHistory) -> None:
+    def __init__(
+        self, versions: Versions, pulls: GitHubPulls, queue: Queue, history: RunHistory, runs: Runs, leases: Leases
+    ) -> None:
         self._versions = versions
         self._pulls = pulls
         self._queue = queue
         self._history = history
+        self._runs = runs
+        self._leases = leases
 
     async def approve(self, source_id: uuid.UUID, requested_by: uuid.UUID) -> RunView:
-        """Refuses while an agent works on the source, so a half-finished branch is never merged."""
-        agent = await self._history.last_agent(source_id)
-        if agent is not None and agent.is_active:
-            raise exceptions.AgentWorking(source_id)
-        proposal = await self._versions.proposed(source_id)
-        if proposal is None:
-            raise exceptions.NothingToMerge(source_id)
-        if not (await self._pulls.get(proposal.pull)).merged:
-            await self._pulls.merge(proposal.pull)
-        return await self._queue.request(source_id, RunKind.REVIEW, requested_by)
+        """Merges under the source's lease, held by the review run it queues, so no agent job can start on the
+        branch between the check that none is working and the merge (formal/scraper `ApproveLeased`). Refuses while
+        an agent works on the source, so a half-finished branch is never merged."""
+        run = await self._runs.add(source_id, RunKind.REVIEW, requested_by)
+
+        async def merge(lease: Lease) -> None:
+            agent = await self._history.last_agent(source_id)
+            if agent is not None and agent.is_active:
+                raise exceptions.AgentWorking(source_id)
+            proposal = await self._versions.proposed(source_id)
+            if proposal is None:
+                raise exceptions.NothingToMerge(source_id)
+            if not (await self._pulls.get(proposal.pull)).merged:
+                await self._pulls.merge(proposal.pull)
+
+        try:
+            await self._leases.hold(source_id, run.id, merge)
+        except exceptions.SourceBusy:
+            await self._runs.finish(run, RunStatus.SKIPPED, "another job is using the portal")
+            raise exceptions.AgentWorking(source_id) from None
+        except exceptions.Error as error:
+            await self._runs.finish(run, RunStatus.SKIPPED, str(error))
+            raise
+        finally:
+            await self._queue.wake(source_id)
+        await self._queue.dispatch(run.id)
+        return run
 
 
 class Imports:
@@ -198,7 +219,7 @@ class Imports:
 
     async def _propose(self, source: SourceView, site: str, pull: Pull) -> None:
         run = await self._runs.add(source.id, RunKind.REVIEW, None)
-        await self._runs.start(run.id)
+        await self._runs.start(run)
 
         async def propose(lease: Lease) -> int:
             version = await self._versions.propose(lease, site, pull.head.ref, pull.number)
@@ -207,4 +228,4 @@ class Imports:
 
         version = await self._leases.hold(source.id, run.id, propose)
         await self._queue.wake(source.id)
-        await self._runs.finish(run.id, RunStatus.SUCCEEDED, f"registered {pull.html_url} as version {version}")
+        await self._runs.finish(run, RunStatus.SUCCEEDED, f"registered {pull.html_url} as version {version}")

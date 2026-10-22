@@ -23,6 +23,7 @@ UNMATCHED = "foundry/unmatched"
 CRASHES = "foundry/crashes"
 EXAMPLE = "foundry/example/"
 PLAIN = "foundry_plain"
+STOPPING = object()  # the signal a crawl sends when told to stop, before Scrapy starts closing it
 
 
 class PortalSpider(scrapy.Spider):

@@ -187,10 +187,13 @@ class Runs:
         await self._timeline.log(run.id, models.EventKind.STATUS, f"Queued a {kind} run.")
         return run
 
-    async def start(self, run_id: uuid.UUID) -> None:
+    async def start(self, run: models.RunView) -> bool:
+        """False when this dispatch is not the run's to carry out: another one started it, or it was replaced."""
         async with self._sessionmaker.begin() as session:
-            await store.start(session, run_id, now())
-        await self._timeline.log(run_id, models.EventKind.STATUS, "Started.")
+            started = await store.start(session, run.id, run.attempts, now())
+        if started:
+            await self._timeline.log(run.id, models.EventKind.STATUS, "Started.")
+        return started
 
     async def reap(self) -> list[uuid.UUID]:
         """Fails the runs whose worker is gone, and queues again each crawl that stopped beating while it has
@@ -227,11 +230,12 @@ class Runs:
             await store.set_live_view(session, run_id, url)
 
     async def finish(
-        self, run_id: uuid.UUID, status: RunStatus, summary: str, stats: dict[str, JsonValue] | None = None
+        self, run: models.RunView, status: RunStatus, summary: str, stats: dict[str, JsonValue] | None = None
     ) -> None:
+        """Ends the attempt `run` was read at; a superseded attempt ends nothing."""
         async with self._sessionmaker.begin() as session:
-            await store.finish(session, run_id, status, summary, stats, now())
-        await self._timeline.log(run_id, models.EventKind.STATUS, f"{status.capitalize()}: {summary}")
+            await store.finish(session, run.id, run.attempts, status, summary, stats, now())
+        await self._timeline.log(run.id, models.EventKind.STATUS, f"{status.capitalize()}: {summary}")
 
 
 class Attempts:

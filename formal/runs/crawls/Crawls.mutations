@@ -1,0 +1,54 @@
+mutation a beat forgets which attempt it is for
+detects NoStaleBeat
+-     /\ IF status = "running" /\ attempts = att[w]
+-        THEN age' = 0
++     /\ IF status = "running"
++        THEN age' = 0
+
+mutation finish is fenced on the status only
+detects NoStaleFinish
+-     IF status \notin Ended /\ (~FencedFinish \/ attempts = att[w])
++     IF status \notin Ended
+
+mutation start checks the status but a second dispatch of the attempt still starts
+detects NoTwinAttempt
+-     /\ IF FencedStart /\ ~(status = "queued" /\ attempts = att[w])
++     /\ IF FencedStart /\ ~(attempts = att[w])
+
+mutation the reaper revives past MOST_ATTEMPTS
+detects ReviveBound
+-     /\ status = "running" /\ age = 3 /\ attempts < Most
++     /\ status = "running" /\ age = 3 /\ attempts < Most + 1
+
+mutation a claim ignores a live lease
+detects Exclusive
+-        THEN holder' = w /\ lage' = 0 /\ pc' = [pc EXCEPT ![w] = "take"]
+-        ELSE pc' = [pc EXCEPT ![w] = "busy"] /\ UNCHANGED lease
++        THEN holder' = w /\ lage' = 0 /\ pc' = [pc EXCEPT ![w] = "take"]
++        ELSE holder' = w /\ lage' = 0 /\ pc' = [pc EXCEPT ![w] = "take"]
+
+mutation a dying container leaves its crawl process running (orphaned subprocess)
+detects OneWriter
+-     /\ mode' = [mode EXCEPT ![w] = "dead"] /\ proc' = [proc EXCEPT ![w] = FALSE] /\ faults' = faults + 1
+-     /\ UNCHANGED <<run, pending, restarts, quiets, pc, att, ino, lease, dir, ghost>>
++     /\ mode' = [mode EXCEPT ![w] = "dead"] /\ faults' = faults + 1
++     /\ UNCHANGED <<run, pending, restarts, quiets, pc, att, proc, ino, lease, dir, ghost>>
+
+mutation SourceBusy waits for every attempt, the first included, but finishes a carried-on one
+detects NoSkippedRetry
+-     /\ IF BusyWaits /\ att[w] > 0 THEN
++     /\ IF BusyWaits /\ att[w] = 0 THEN
+
+mutation the reaper never carries a quiet crawl on
+detects Settles
+-     /\ status = "running" /\ age = 3 /\ attempts < Most
+-     /\ status' = "queued"
++     /\ status = "running" /\ age = 3 /\ attempts < Most /\ FALSE
++     /\ status' = "queued"
+
+mutation beat_at age is not capped
+detects TypeOK
+-     /\ age < 3
+-     /\ ~\E w
++     /\ age < 4
++     /\ ~\E w

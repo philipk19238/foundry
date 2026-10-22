@@ -15,7 +15,7 @@ from foundry.app import exceptions
 from foundry.app.db.models.runs import RunStatus
 from foundry.app.repo.repo import Mirror
 from foundry.app.runs.models import Dispatcher, EventKind
-from foundry.app.runs.runs import Runs, Timeline
+from foundry.app.runs.runs import RunHistory, Runs, Timeline
 from foundry.app.scrapers.models.crawl import CrawlState
 from foundry.app.settings import Settings, settings
 
@@ -97,10 +97,12 @@ class Deployer:
     deployed: what a run wants changed reaches `main` through a pull request a person merged."""
 
     def __init__(
-        self, mirror: Mirror, runs: Runs, timeline: Timeline, dispatcher: Dispatcher, settings: Settings
-    ) -> None:
+        self, mirror: Mirror, runs: Runs, history: RunHistory, timeline: Timeline, dispatcher: Dispatcher,
+        settings: Settings,
+    ) -> None:  # fmt: skip
         self._mirror = mirror
         self._runs = runs
+        self._history = history
         self._timeline = timeline
         self._dispatcher = dispatcher
         self._environment = settings.modal_environment
@@ -109,7 +111,7 @@ class Deployer:
         try:
             commit = await self.deploy()
         except exceptions.Error as error:
-            await self._runs.finish(run_id, RunStatus.FAILED, str(error))
+            await self._runs.finish(await self._history.run(run_id), RunStatus.FAILED, str(error))
             return
         await self._timeline.log(run_id, EventKind.STATUS, f"Deployed main at {commit[:12]}; carrying on there.")
         await self._dispatcher.dispatch(run_id)

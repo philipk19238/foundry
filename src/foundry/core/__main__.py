@@ -28,7 +28,7 @@ from pathlib import Path
 
 from playwright.async_api import async_playwright
 from pydantic import TypeAdapter
-from scrapy.crawler import AsyncCrawlerRunner
+from scrapy.crawler import AsyncCrawlerRunner, Crawler
 from scrapy.settings import Settings
 from scrapy.utils.log import configure_logging
 
@@ -38,6 +38,13 @@ from foundry.core.recorder import Recorder
 from foundry.core.sites import Sites
 
 STOPPED_CLEANLY = "stopped-cleanly"
+
+
+async def stop(crawler: Crawler) -> None:
+    """SIGTERM: tell the kit the crawl is stopping, so nothing waits on a pace, then close it the way Scrapy saves
+    its queue."""
+    crawler.signals.send_catch_log(signal=spider.STOPPING)
+    await crawler.stop_async()
 
 
 def resumable(job: CrawlJob) -> None:
@@ -100,7 +107,7 @@ async def crawl(job: CrawlJob) -> None:
     configure_logging(settings)
     runner = AsyncCrawlerRunner(settings)
     crawler = runner.create_crawler(portal)
-    asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, lambda: asyncio.ensure_future(crawler.stop_async()))
+    asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, lambda: asyncio.ensure_future(stop(crawler)))
     await runner.crawl(crawler, **job.arguments)
     if job.state is not None:
         (job.state / STOPPED_CLEANLY).touch()
