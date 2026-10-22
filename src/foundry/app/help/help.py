@@ -1,7 +1,6 @@
 import asyncio
 import datetime as dt
 import uuid
-from typing import assert_never
 
 from foundry.app import exceptions
 from foundry.app.auth.auth import Users
@@ -78,7 +77,7 @@ class HelpQueue:
         request = await self.request(help_id)
         if not claimed and not request.is_held_by(user):
             raise exceptions.HelpTaken()
-        await self._timeline.log(request.run_id, EventKind.HELP, f"{user.email} took over the browser.")
+        await self._timeline.log(request.run_id, EventKind.NOTE, f"{user.email} took over the browser")
         return request
 
     async def give_back(self, help_id: uuid.UUID, user: UserView) -> None:
@@ -86,12 +85,18 @@ class HelpQueue:
             given = await store.give_back(session, help_id, user.id)
         if not given:
             raise exceptions.HelpTaken()
+        request = await self.request(help_id)
+        await self._timeline.log(request.run_id, EventKind.NOTE, f"{user.email} let go of the browser")
 
     async def done(self, help_id: uuid.UUID, user: UserView, note: str) -> None:
         async with self._sessionmaker.begin() as session:
             finished = await store.done(session, help_id, user.id, note, now())
         if not finished:
             raise exceptions.HelpTaken()
+        request = await self.request(help_id)
+        await self._timeline.log(request.run_id, EventKind.NOTE, f"{user.email} handed the browser back")
+        if note:
+            await self._timeline.wrote(request.run_id, EventKind.ANSWER, user.email, note)
 
 
 class HelpDesk:
@@ -121,7 +126,7 @@ class HelpDesk:
             request = await store.add(session, run_id, reason, live_view_url, at, at + WAIT)
         await self._runs.pause(run_id)
         try:
-            await self._timeline.log(run_id, EventKind.HELP, f"Asked for help: {reason}")
+            await self._timeline.log(run_id, EventKind.HELP, reason)
             url = f"{settings.base_url}/runs/{run_id}"
             try:
                 await self._notifier.help_requested(request.id, await self._users.all(), reason, url)
@@ -130,13 +135,8 @@ class HelpDesk:
             answer = await self._answer(request.id)
         finally:
             await self._runs.resume(run_id)
-        match answer:
-            case models.HumanHelp():
-                await self._timeline.log(run_id, EventKind.HELP, f"A person finished: {answer.note or 'no note'}")
-            case models.NoAnswer():
-                await self._timeline.log(run_id, EventKind.HELP, "Nobody answered before the request expired.")
-            case _:
-                assert_never(answer)
+        if isinstance(answer, models.NoAnswer):
+            await self._timeline.log(run_id, EventKind.NOTE, "Nobody answered in time, so the agent stopped waiting")
         return answer
 
     async def _answer(self, help_id: uuid.UUID) -> models.Answer:

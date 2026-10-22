@@ -17,9 +17,9 @@ Read `README.md` first: it says where a buyer's folder goes, what `buyer.toml` h
 In short:
 
 - A buyer is a folder under `src/foundry/buyers/<country>/<state>/<place>/` with a `buyer.toml` listing its portals.
-- A portal on a shared platform (DemandStar, BidNet, ...) names the platform and its tenant; the spider lives once
-  in `src/foundry/platforms/<platform>/`. Check there before writing a new spider: if the portal runs on a platform
-  that is already there, reuse it.
+- A portal on a shared platform (DemandStar, BidNet, ...) whose spider is already in `src/foundry/platforms/<platform>/`:
+  reuse it by naming the platform and this buyer's tenant. If the platform has no spider there yet, don't build one:
+  write a site of its own for this buyer, as below.
 - A portal of its own gets `scraper.py` and `fixtures.json` in a folder named for it inside the buyer's folder.
 - A site key is the buyer's folder plus the portal's name: `us/tx/austin/financeonline`.
 - Spiders import only from `foundry.core`. Copy the shape of an existing site.
@@ -40,13 +40,25 @@ login wall you can't pass. If a person asks to take over your browser, finish th
 
 ## Accounts
 
-Call `account` to see if this portal already has a login. If you create one, call `save_account` with the username
-and password right away. Use a strong random password.
+Work with the access you already have. Most portals show their open opportunities, details and documents to anyone,
+so scrape what the page shows without signing in. Don't create an account to reach something you can already see,
+and don't ask a person to make one for you. Only when the data the scraper needs is truly behind a login (the list
+itself, or every detail page) call `account` for a login we already have, and if there is none, ask with
+`request_help` before signing up for anything. If an attachment needs a login but the listing and details don't,
+scrape the listing and details, keep each attachment's link and name, and say so in your summary. If you do create an
+account, call `save_account` with the username and password right away, and use a strong random password.
 
 ## What you deliver
 
-1. Find the portal's own API: the JSON (or HTML fragment) requests behind its opportunity listing, the detail view,
-   and the attachment downloads. Prefer these over parsing rendered pages.
+1. Get all of the data, whatever it takes, in this order of preference:
+   - **The portal's own API**: the JSON (or HTML fragment) requests behind its opportunity listing, the detail view
+     and the attachment downloads. Look for them in the network traffic first; they are the most reliable.
+   - **The page itself**, when there is no usable API: parse the HTML the server sends for the list and each
+     detail. Most pages that look dynamic still load their data from a request you can call directly.
+   - **A real browser**, only when the data appears after JavaScript runs and no request returns it. The kit runs
+     Scrapy without a browser, so propose that change to `foundry.core` (see "Changing foundry itself") and say why
+     the cheaper ways didn't work.
+   Don't stop at a partial scraper: every open opportunity, its details and its attachments' links.
 2. Save the responses you used as the site's fixtures: a JSON list of
    `{{"method", "url", "status", "headers", "body"}}` objects, with `body` as text. Include at least one listing page
    and two detail responses, and nothing private beyond what the portal shows any signed-in user.

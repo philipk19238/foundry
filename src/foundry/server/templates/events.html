@@ -1,5 +1,7 @@
 {% for event in events %}<template hx-swap-oob="beforeend:#timeline">{% include "_event.html" %}</template>{% endfor %}
 {% for event in events if event.in_chat %}<template hx-swap-oob="beforeend:#chat">{% include "_chat_line.html" %}</template>{% endfor %}
+{% set doing = (events | rejectattr("in_chat") | list | last) if events else none %}
+{% if doing or not run.is_active %}<div hx-swap-oob="outerHTML:#ticker">{% include "_ticker.html" %}</div>{% endif %}
 <div id="run-status" class="facts" hx-swap-oob="true">{% include "_run_status.html" %}</div>
 <section id="help-box" hx-swap-oob="true">{% include "_help_box.html" %}</section>
 {% set after = events[-1].id if events else after %}

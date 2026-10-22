@@ -1,0 +1,5 @@
+{% if run.is_active and doing %}
+<div class="c-ticker" id="ticker"><span class="c-dots" aria-hidden="true"><i></i><i></i><i></i></span><span class="c-doing">{{ doing.text | truncate(140) }}</span></div>
+{% else %}
+<div id="ticker"></div>
+{% endif %}

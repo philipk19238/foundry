@@ -1,7 +1,17 @@
-<li class="line {{ event.kind }}">
-  {% if event.kind == "message" %}<span class="who">🤖 Agent</span>
-  {% elif event.kind == "help" %}<span class="who">✋ Help</span>
-  {% else %}<span class="who">{{ event.author }}{% if event.kind == "answer" %} · answered the request{% endif %}</span>{% endif %}
-  <div class="bubble">{{ event.text }}</div>
-  <time>{{ event.at.strftime("%H:%M") }}</time>
+{% if event.kind == "note" %}
+<li class="c-note"><span>{{ event.text }} · {{ event.at.strftime("%H:%M") }}</span></li>
+{% else %}
+{% set mine = event.kind in ("person", "answer") %}
+<li class="c-msg {{ 'mine' if mine else 'theirs' }}{{ ' asking' if event.kind == 'help' else '' }}">
+  {% if not mine %}<span class="c-avatar" aria-hidden="true">✦</span>{% endif %}
+  <div class="c-body">
+    <div class="c-meta">
+      <b>{% if mine %}{{ event.author.split("@")[0] }}{% else %}Agent{% endif %}</b>
+      {% if event.kind == "help" %}<span class="c-chip">Needs you</span>{% endif %}
+      {% if event.kind == "answer" %}<span class="c-chip quiet">answered</span>{% endif %}
+      <time>{{ event.at.strftime("%H:%M") }}</time>
+    </div>
+    <div class="c-bubble">{{ event.text }}</div>
+  </div>
 </li>
+{% endif %}
