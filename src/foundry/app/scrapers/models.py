@@ -107,8 +107,9 @@ class Crawl(BaseModel, frozen=True):
 
     @property
     def blocked(self) -> bool:
-        """The portal turned away a scraper that sent no session, so a stealth browser may get it through."""
-        return self.auth_failed and not self.signed_in and not self.browser
+        """The portal turned away a plain crawl. Bot checks answer the way an expired session does, so a stealth
+        browser gets the next try either way."""
+        return self.auth_failed and not self.browser
 
 
 class Health(BaseModel, frozen=True):

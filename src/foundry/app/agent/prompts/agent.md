@@ -58,10 +58,10 @@ reads it as `self.credentials["<name>"]`. Call `credentials` to see what is alre
 spider's code, its fixtures or the pull request. A CSRF token that changes with every page is not a credential: read
 it from the page in the spider.
 
-Bot checks are foundry's to get past, not a reason to sign in. A live crawl the portal turns away with no session to
-blame runs again from a stealth browser on a US residential address: each request is sent as a `fetch` from a page on
-the portal, so the spider gets the same responses as plain HTTP and needs no browser code. `fetch` drops the `Cookie`,
-`User-Agent` and `Referer` headers a spider sets, and the page sends its own.
+Bot checks are foundry's to get past, not a reason to sign in. A live crawl the portal turns away runs again from a
+stealth browser on a US residential address: each request is sent as a `fetch` from a page on the portal, so the
+spider gets the same responses as plain HTTP and needs no browser code. `fetch` drops the `Cookie`, `User-Agent` and
+`Referer` headers a spider sets, and the page sends its own.
 
 ## What you deliver
 
