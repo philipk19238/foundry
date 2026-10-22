@@ -9,7 +9,8 @@
     {% endif %}
   </div>
   {% if tried.running %}
-    <p class="empty">Scraping the portal. Results show up here when it finishes.</p>
+    {% set began = tried.running.started_at or tried.running.created_at %}
+    <p class="empty">Scraping the live portal with v{{ newest.version }}, since {{ began.strftime("%H:%M") }} UTC. A big portal can take a while; results show up here when it finishes{% if newest.state == "proposed" %}, and on the pull request{% endif %}.</p>
   {% elif tried.trial %}
     {% set trial = tried.trial %}
     {% set crawl = trial.crawl %}

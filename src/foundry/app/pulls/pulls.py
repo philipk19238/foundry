@@ -10,7 +10,6 @@ import jinja2
 
 from foundry.app import exceptions
 from foundry.app.agent.models import handoff, outcomes
-from foundry.app.browser.browser import Accounts
 from foundry.app.catalog.catalog import Catalog
 from foundry.app.catalog.models import SourceView
 from foundry.app.core.models import Lease
@@ -20,7 +19,7 @@ from foundry.app.repo.models import BRANCHES, Pull
 from foundry.app.repo.repo import Clones, Mirror
 from foundry.app.runs.models import EventKind, RunView
 from foundry.app.runs.runs import Leases, Queue, RunHistory, Runs, Timeline
-from foundry.app.scrapers.models import CrawlReport, Verdict
+from foundry.app.scrapers.models import CrawlReport, ScraperView, Verdict
 from foundry.app.scrapers.scrapers import Crawls, Healths, Versions
 from foundry.app.settings import Settings
 from foundry.core.sites import Sites
@@ -42,18 +41,17 @@ PULLS.filters.update(cell=cell)
 
 
 class Proposals:
-    """Turns what the agent submitted into a pull request: every site the branch touches must pass its replay, the
-    submitted site gets a staging crawl against the live portal from the branch, and both go in the description so the
-    reviewer sees the scraper work before merging."""
+    """Turns what the agent submitted into a pull request: every site the branch touches must pass its replay, then
+    the pull request opens and the version goes into review at once. The live test scrape that follows runs as a job
+    of its own, which the scraper's Test tab follows and which comments its results on the pull request."""
 
     def __init__(
-        self, clones: Clones, pulls: GitHubPulls, crawls: Crawls, accounts: Accounts, catalog: Catalog,
+        self, clones: Clones, pulls: GitHubPulls, crawls: Crawls, catalog: Catalog,
         versions: Versions, timeline: Timeline, settings: Settings,
     ) -> None:  # fmt: skip
         self._clones = clones
         self._pulls = pulls
         self._crawls = crawls
-        self._accounts = accounts
         self._catalog = catalog
         self._versions = versions
         self._timeline = timeline
@@ -73,14 +71,9 @@ class Proposals:
         if failed:
             return outcomes.Rejection(reason=f"the replay fails for {', '.join(failed)}")
         await self._timeline.log(lease.run_id, EventKind.STATUS, f"Replays pass for {', '.join(replays)}.")
-        access = await self._accounts.access(lease.source_id)
-        staging = await self._crawls.live(checkout, lease.source_id, submission.site, access, 0)
-        await self._timeline.log(
-            lease.run_id, EventKind.STATUS, f"Staging crawl: {staging.crawl.verdict}, {staging.crawl.valid} listings."
-        )
         branch = await self._clones.push(checkout)
         source = await self._catalog.source(lease.source_id)
-        body = self.describe(lease, source.url, branch, submission, replays, staging)
+        body = self.describe(lease, source.url, branch, submission, replays)
         pull = await self._pulls.open(branch, submission.title, body)
         version = await self._versions.propose(lease, submission.site, branch, pull.number)
         return outcomes.ScraperPull(version=version, url=pull.html_url)
@@ -89,11 +82,10 @@ class Proposals:
         return report.crawl.verdict == Verdict.HEALTHY and report.crawl.valid > 0
 
     def describe(
-        self, lease: Lease, portal: str, branch: str, submission: handoff.Submission, replays: dict[str, CrawlReport],
-        staging: CrawlReport,
-    ) -> str:  # fmt: skip
+        self, lease: Lease, portal: str, branch: str, submission: handoff.Submission, replays: dict[str, CrawlReport]
+    ) -> str:
         """A scraper's pull request, from the template every one follows: what it does, how it reads the portal, how
-        to test it, sample output, gaps, and what to check before merging."""
+        to test it, gaps, and what to check before merging."""
         return PULLS.get_template("scraper.md").render(
             portal=portal,
             branch=branch,
@@ -103,10 +95,21 @@ class Proposals:
             source_url=f"{self._base_url}/sources/{lease.source_id}",
             submission=submission,
             replays=replays,
-            staging=staging,
-            samples=staging.listings[:SAMPLES],
-            first=staging.listings[0].model_dump_json(indent=2, exclude_defaults=True) if staging.listings else "",
+            test_url=f"{self._base_url}/sources/{lease.source_id}/test",
         )
+
+    async def report_test(self, scraper: ScraperView, run_id: uuid.UUID, report: CrawlReport) -> None:
+        """Comments a finished test scrape of a version in review on its pull request: the verdict, the counts and
+        sample listings, so a reviewer on GitHub sees the scraper work against the live portal."""
+        body = PULLS.get_template("test.md").render(
+            scraper=scraper,
+            crawl=report.crawl,
+            samples=report.listings[:SAMPLES],
+            first=report.listings[0].model_dump_json(indent=2, exclude_defaults=True) if report.listings else "",
+            test_url=f"{self._base_url}/sources/{scraper.source_id}/test",
+            run_url=f"{self._base_url}/runs/{run_id}",
+        )
+        await self._pulls.comment(scraper.pull, body)
 
     def describe_change(self, run_id: uuid.UUID, change: handoff.Change) -> str:
         """A pull request to foundry itself, from its template: what changes, the blocker, and how it was tested."""

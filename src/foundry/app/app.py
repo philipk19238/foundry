@@ -24,7 +24,7 @@ from foundry.app.catalog.catalog import Catalog, Opportunities
 from foundry.app.catalog.models import ScrapedNotice, SourceView
 from foundry.app.core.models import Lease
 from foundry.app.db import db
-from foundry.app.db.models.catalog import SourceStatus
+from foundry.app.db.models.catalog import ScraperState, SourceStatus
 from foundry.app.db.models.runs import RunKind, RunStatus
 from foundry.app.files.client import FolderBucket, R2Bucket
 from foundry.app.files.models import Bucket
@@ -105,6 +105,7 @@ class Jobs:
         pulls: GitHubPulls,
         pauses: Pauses,
         scrapers: ScraperHistory,
+        proposals: Proposals,
     ) -> None:
         self._runs = runs
         self._history = history
@@ -119,6 +120,7 @@ class Jobs:
         self._pulls = pulls
         self._pauses = pauses
         self._scrapers = scrapers
+        self._proposals = proposals
 
     async def carry_out(self, run_id: uuid.UUID) -> None:
         """Carries a run out. An agent job that finds its source held waits for it instead of being skipped; whenever
@@ -206,7 +208,7 @@ class Jobs:
             case outcomes.ScraperPull(version=version, url=url):
                 await self._healths.set(lease, SourceStatus.READY if standing.live else SourceStatus.IN_REVIEW)
                 await self._runs.finish(run.id, RunStatus.SUCCEEDED, f"proposed scraper version {version}: {url}")
-                return None
+                return RunKind.TRIAL
             case outcomes.Restart(commit=commit):
                 await self._timeline.log(run.id, EventKind.STATUS, f"Restarting on main at {commit[:12]}.")
                 await self._pauses.restart(run.id)
@@ -239,6 +241,11 @@ class Jobs:
         crawl = report.crawl
         summary = f"tried v{scraper.version} ({scraper.state}): {crawl.verdict}, {crawl.valid} listings"
         await self._runs.finish(run.id, RunStatus.SUCCEEDED, summary, stats)
+        if scraper.state == ScraperState.PROPOSED:
+            try:
+                await self._proposals.report_test(scraper, run.id, report)
+            except exceptions.Error as error:
+                logger.warning("couldn't comment test %s on pull %s: %s", run.id, scraper.pull, error)
         return None
 
     async def _review(self, run: RunView, lease: Lease) -> RunKind | None:
