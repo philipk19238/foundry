@@ -8,8 +8,12 @@
 
 ## How it gets the data
 
+{% if submission.method %}
 **Reads:** {{ {"api": "the portal's API", "html": "the HTML the portal's server sends", "browser": "a real browser"}[submission.method] }}
+{% endif %}
+{% if submission.access %}
 **Access:** {{ submission.access }}
+{% endif %}
 
 {% for step in submission.process %}
 {{ loop.index }}. {{ step }}

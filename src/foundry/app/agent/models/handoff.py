@@ -35,16 +35,17 @@ class Method(enum.StrEnum):
 class Submission(BaseModel, frozen=True):
     """What the agent hands in with `submit`, which fills the pull request's template: the site, what the scraper
     does, how it reads the portal and signs in, the steps that found the data, what the agent checked against the
-    portal itself, and what the scraper can't get yet."""
+    portal itself, and what the scraper can't get yet. A run's submission is saved in its workspace and read back when
+    it reopens, so the fields added with the template have defaults for submissions saved before it."""
 
     site: str
     title: str
     summary: str
-    method: Method
-    access: str
-    process: tuple[str, ...]
-    checks: tuple[str, ...]
-    gaps: tuple[str, ...]
+    method: Method | None = None
+    access: str = ""
+    process: tuple[str, ...] = ()
+    checks: tuple[str, ...] = ()
+    gaps: tuple[str, ...] = ()
 
 
 class Change(BaseModel, frozen=True):
