@@ -42,3 +42,51 @@ Verification on 2026-10-22: the rendered page showed 385 rows with Posted select
 the full live crawl printed PASS with 385 valid listings, zero invalid listings,
 and zero crashes, resolving 1,191 attachment links. All titles and deadlines
 matched the search rows. Fixture replay was healthy with two complete listings.
+
+## Guest-session and event failures
+
+PeopleSoft can redirect an HTTP 200 response to
+`/psc/psfpd1/?cmd=logout&cmd=login&errorCode=127`, or show its `form#login`
+under an event URL. `logged_out` identifies both before a callback parses it.
+The ordinary detail/search URLs contain no `login` substring.
+
+Every request in an event's chain has an errback. A missing title or malformed
+event is logged and counted under `caleprocure/events_failed`; its window moves
+on. Attachment failures retain the listing and already resolved files, record
+`scrape_errors` in metadata and count `caleprocure/events_partial`. Missing
+resolver links count `caleprocure/attachments_failed`. When PeopleSoft returns
+the detail page instead of the attachment package, remaining filenames are
+retained in `unresolved_files` and the window moves on, rather than posting
+package buttons against invalid server state.
+
+The session-refresh hook is `renewed(request) -> Request | None`. It returns a
+search request for that request's window. Once the search has restored its
+server state, the callback restarts the interrupted event and then continues
+the existing queue. Completed events are never requeued. Each window has a
+generation number so stale callbacks cannot release a newly assigned event.
+The spider requires no sign-in and leaves guest-session refresh to the kit.
+Until the refresh-capable kit is deployed, a detected logout still stops the
+crawl, preserving its interrupted event rather than reporting it as malformed.
+
+`logout.json` is the captured public PeopleSoft sign-in response (no cookies or
+CSRF values). `tests/test_caleprocure.py` replays it through logout detection,
+then simulates the kit's replacement request and replays both complete sample
+events. Separate regression scenarios prove that a failed detail, package or
+file request, a missing title and a missing file link do not end the window or
+lose previously resolved files. The intentional logout response is kept separate
+from the ordinary healthy fixtures, since the old kit correctly marks a replay
+that encounters it as logged out.
+
+Repair verification on 2026-10-22: ordinary fixture replay is healthy (two valid
+listings, zero invalid listings or crashes); all seven failure/renewal regression
+tests pass. The full live run collected **383 of the portal's 384 opportunities**,
+with 383 unique IDs, zero invalid listings and zero crashes. Every collected
+title and deadline matched the initial search snapshot. It resolved 937 file
+links; 41 listings retained partial file sets and 159 unresolved filenames after
+PeopleSoft package resets. One HTTP 500 was retried successfully by the kit.
+The run ended **FAIL, logged out True** at
+`/psc/psfpd1_4/?cmd=logout&cmd=login&errorCode=127&languageCd=ENG` near the end;
+`3540/4CA07687` remained interrupted. This checkout has no session-refresh kit
+implementation, so it cannot call the new hook yet. Renewal is covered by the
+captured logout regression and the corrected `renewed(request)` contract, but
+a live PASS through guest renewal still requires that kit update.
