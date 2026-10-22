@@ -23,12 +23,37 @@ class ToolsContext(BaseModel, frozen=True):
     workspace: Path
 
 
+class Method(enum.StrEnum):
+    """How a scraper reads its portal, from the most reliable to the least: the portal's own API, the HTML its server
+    sends, or a real browser."""
+
+    API = "api"
+    HTML = "html"
+    BROWSER = "browser"
+
+
 class Submission(BaseModel, frozen=True):
-    """What the agent hands in with `submit`: the site its work is for, and the pull request's title and summary."""
+    """What the agent hands in with `submit`, which fills the pull request's template: the site, what the scraper
+    does, how it reads the portal and signs in, the steps that found the data, what the agent checked against the
+    portal itself, and what the scraper can't get yet."""
 
     site: str
     title: str
     summary: str
+    method: Method
+    access: str
+    process: tuple[str, ...]
+    checks: tuple[str, ...]
+    gaps: tuple[str, ...]
+
+
+class Change(BaseModel, frozen=True):
+    """What the agent hands in with `propose_change`, which fills the template of a pull request to foundry itself."""
+
+    title: str
+    summary: str
+    blocker: str
+    testing: tuple[str, ...]
 
 
 class ChangePull(BaseModel, frozen=True):

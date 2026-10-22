@@ -82,10 +82,29 @@ async def check_scraper(site: str, ctx: Context[svcs.Registry]) -> str:
 
 
 @server.tool()
-async def submit(site: str, title: str, summary: str, ctx: Context[svcs.Registry]) -> str:
-    """Hand in your scraper for `site` when `check_scraper` passes. `title` and `summary` become the pull request's;
-    say what the portal is, how it signs in, and what the scraper reads. After this, end your turn: foundry checks
-    every site your branch touches, crawls the live portal from your branch, and opens the pull request."""
+async def submit(
+    site: str,
+    title: str,
+    summary: str,
+    method: handoff.Method,
+    access: str,
+    process: list[str],
+    checks: list[str],
+    gaps: list[str],
+    ctx: Context[svcs.Registry],
+) -> str:
+    """Hand in your scraper for `site` when `check_scraper` passes. Foundry fills the pull request's template from
+    what you give here, so write it for a reviewer who has never seen the portal:
+    - `title`: the buyer and portal, such as "Add City of Paso Robles (DemandStar)".
+    - `summary`: what the scraper reads, in two or three sentences.
+    - `method`: `api`, `html` or `browser`, whichever the scraper uses.
+    - `access`: public, or how it signs in and with which saved account, and why it needs to.
+    - `process`: the steps that found the data, in order, naming each endpoint or page and what it returns.
+    - `checks`: what you compared against the portal itself, such as "the portal lists 12 open bids; the crawl
+      found 12" or "due dates match the times the page shows".
+    - `gaps`: what the scraper can't get yet and why (empty if nothing).
+    After this, end your turn: foundry replays every site your branch touches, crawls the live portal from your
+    branch, and opens the pull request with sample output and how to test it."""
     async with svcs.Container(ctx.request_context.lifespan_context) as services:
         crawls, proposals = await services.aget(Crawls, Proposals)
         try:
@@ -94,20 +113,35 @@ async def submit(site: str, title: str, summary: str, ctx: Context[svcs.Registry
             return str(error)
     if not proposals.passed(report):
         return f"Not submitted: the replay must be healthy with listings.\n{described(report)}"
-    WORKSPACE.handoff.submit(handoff.Submission(site=site, title=title, summary=summary))
+    submission = handoff.Submission(
+        site=site,
+        title=title,
+        summary=summary,
+        method=method,
+        access=access,
+        process=tuple(process),
+        checks=tuple(checks),
+        gaps=tuple(gaps),
+    )
+    WORKSPACE.handoff.submit(submission)
     return "Submitted. End your turn now with a short summary."
 
 
 @server.tool()
-async def propose_change(title: str, summary: str, ctx: Context[svcs.Registry]) -> str:
+async def propose_change(
+    title: str, summary: str, blocker: str, testing: list[str], ctx: Context[svcs.Registry]
+) -> str:
     """Open a pull request with everything your branch changes, for a change to foundry itself: your tools, prompts,
-    the browser or agent code, or the shared core. A person reviews it. Ask them to merge it with `request_help`
-    (include the link), and once it is merged call `restart` to carry on with the new code."""
+    the browser or agent code, or the shared core. `summary` says what changes, `blocker` what stopped you without
+    it, and `testing` how you checked it (commands you ran and what they showed). A person reviews it. Ask them to
+    merge it with `request_help` (include the link), and once it is merged call `restart` to carry on with the new
+    code."""
+    change = handoff.Change(title=title, summary=summary, blocker=blocker, testing=tuple(testing))
     async with svcs.Container(ctx.request_context.lifespan_context) as services:
-        clones, pulls = await services.aget(Clones, GitHubPulls)
+        clones, pulls, proposals = await services.aget(Clones, GitHubPulls, Proposals)
         await clones.commit(WORKSPACE.checkout, title)
         branch = await clones.push(WORKSPACE.checkout)
-        pull = await pulls.open(branch, title, f"{summary}\n\nOpened by foundry run `{CONTEXT.run_id}`.")
+        pull = await pulls.open(branch, title, proposals.describe_change(CONTEXT.run_id, change))
     WORKSPACE.handoff.keep_pull(handoff.ChangePull(number=pull.number, url=pull.html_url))
     return f"Opened {pull.html_url}."
 

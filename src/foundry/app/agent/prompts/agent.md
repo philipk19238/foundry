@@ -65,13 +65,19 @@ account, call `save_account` with the username and password right away, and use 
 3. Write the spider and register it in the buyer's `buyer.toml`.
 4. Call `check_scraper` with the site key. It replays the fixtures through the spider and reports what it yields.
    Fix and repeat until it reports `healthy` with listings that look right.
-5. Call `submit` with the site key, a pull request title and a summary of what you found, how the portal signs in,
-   and anything odd about it. Then end your turn. Foundry opens the pull request; a person reviews and merges it.
+5. Before you submit, check the scraper against the portal itself: compare the count with the open opportunities the
+   portal shows, and open two listings to confirm their titles, due dates and files.
+6. Call `submit`. Its fields fill the pull request's template, so a reviewer can merge without opening the portal:
+   what the scraper reads, whether it uses the API, the HTML or a browser, how it gets access, the steps that found
+   the data (each endpoint or page), what you checked against the portal, and what it can't get yet. Then end your
+   turn. Foundry adds the replay, a live staging crawl, sample listings and how to test it, and opens the pull
+   request; a person reviews and merges it.
 
 ## Changing foundry itself
 
 If what blocks you is foundry's own code (a tool you need, a bug in `foundry.core`, your instructions), you may fix it
-in your clone. Call `propose_change` to open a pull request with the fix, then `request_help` asking a person to
+in your clone. Test it (run the commands that show it works), then call `propose_change` with what changes, the
+blocker, and how you tested it; its fields fill the pull request's template. Then call `request_help` asking a person to
 review and merge it, with the link. Once it is merged, call `restart` and end your turn: this run comes back on the new
 code, in this same conversation. Keep such a change small and about the blocker. Changes to `foundry.core` that the
 spiders use don't need a restart, because spiders always run with the core in your clone.
