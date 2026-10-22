@@ -25,7 +25,7 @@ secrets:
 
 # Deploy the Modal app (dev environment only); run `just secrets` first
 deploy:
-    uv run modal deploy --env dev src/foundry/worker/functions.py
+    uv run python -m foundry.worker deploy
 
 format *paths=".":
     uv run ruff format {{ paths }}
