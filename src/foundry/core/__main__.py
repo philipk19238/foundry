@@ -29,7 +29,7 @@ from pathlib import Path
 from playwright.async_api import async_playwright
 from pydantic import TypeAdapter
 from scrapy.crawler import AsyncCrawlerRunner, Crawler
-from scrapy.settings import Settings
+from scrapy.settings import Settings, default_settings
 from scrapy.utils.log import configure_logging
 
 from foundry.core import challenges, pace, recorder, spider
@@ -38,6 +38,9 @@ from foundry.core.recorder import Recorder
 from foundry.core.sites import Sites
 
 STOPPED_CLEANLY = "stopped-cleanly"
+DOWNLOAD_TIMEOUT = 60
+MEMORY_WARNING_MB = 768
+MEMORY_LIMIT_MB = 1536
 
 
 async def stop(crawler: Crawler) -> None:
@@ -94,8 +97,13 @@ async def crawl(job: CrawlJob) -> None:
             "FOUNDRY_HOME": job.home,
             "FOUNDRY_FIXTURES": [fixture.model_dump() for fixture in job.fixtures or []],
             "LOG_LEVEL": "INFO",
+            "DOWNLOAD_TIMEOUT": DOWNLOAD_TIMEOUT,
+            "MEMUSAGE_ENABLED": True,
+            "MEMUSAGE_WARNING_MB": MEMORY_WARNING_MB,
+            "MEMUSAGE_LIMIT_MB": MEMORY_LIMIT_MB,
         }
     )
+    settings.set("RETRY_EXCEPTIONS", [*default_settings.RETRY_EXCEPTIONS, "builtins.TimeoutError"])
     if job.state is not None:
         settings.set("JOBDIR", str(job.state))
     if job.delay:

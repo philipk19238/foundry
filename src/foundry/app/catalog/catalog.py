@@ -47,10 +47,12 @@ class Catalog:
         return [notice for notice in notices if notice.notice_id not in known.notices]
 
     async def stored(self, source_id: uuid.UUID) -> dict[str, SavedFile]:
-        """The attachments of a source already in the bucket, by URL, so a crawl doesn't download them again."""
+        """The attachments of a source already in the bucket, by unsigned URL, so a crawl doesn't download them
+        again."""
         async with self._sessionmaker() as session:
             files = await store.stored(session, source_id)
-        return {file.url: SavedFile.model_validate(file, from_attributes=True) for file in files}
+        saved = [SavedFile.model_validate(file, from_attributes=True) for file in files]
+        return {file.key: file for file in saved}
 
     async def ingest(
         self,

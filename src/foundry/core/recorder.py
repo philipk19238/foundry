@@ -33,6 +33,8 @@ UNSENDABLE = {
 HTTP_ERROR = 400
 MEANINGFUL = 12
 
+NEEDS_TIMEOUT_MS = 60_000
+
 
 class Recorder:
     """Logs every exchange of every page in a browser, new tabs included, one JSON line each, and prints a line per
@@ -132,6 +134,7 @@ class Needs:
             method=asked.method,
             headers={key: value for key, value in asked.request_headers.items() if self.sendable(key)},
             body=base64.b64encode(asked.request_body.encode()).decode() if asked.request_body else None,
+            timeout=NEEDS_TIMEOUT_MS,
         )
         async with async_playwright() as playwright:
             browser = await playwright.chromium.connect_over_cdp(cdp_url)

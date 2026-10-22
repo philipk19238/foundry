@@ -25,6 +25,7 @@ from foundry.core.spider import (
     CHALLENGED,
     CRASHES,
     EXAMPLE,
+    FILE,
     INVALID,
     LOGGED_OUT,
     PLAIN,
@@ -35,6 +36,7 @@ from foundry.core.spider import (
 )
 
 BLANK_PATH = "__foundry__"
+PAGE_SLACK = 10.0
 BLANK_PAGE = "<!doctype html><title>foundry</title>"
 
 
@@ -60,7 +62,10 @@ class SessionMiddleware:
             request.headers.setdefault("Cookie", self._session.cookie_header)
 
     def process_response(self, request: Request, response: Response) -> Response:
+        """An attachment refused (an expired link, a file host's 403) is a failed download, never a lost session."""
         spider = self._crawler.spider
+        if request.meta.get(FILE):
+            return response
         if isinstance(spider, PortalSpider) and spider.logged_out(response) and self._crawler.stats is not None:
             self._crawler.stats.set_value(LOGGED_OUT, True)
             if self._crawler.stats.get_value(REFUSED) is None:
@@ -69,9 +74,9 @@ class SessionMiddleware:
         return response
 
 
-FETCH = """async ({url, method, headers, body}) => {
+FETCH = """async ({url, method, headers, body, timeout}) => {
   const response = await fetch(url, {
-    method, headers, credentials: "include",
+    method, headers, credentials: "include", signal: AbortSignal.timeout(timeout),
     body: body === null ? undefined : Uint8Array.from(atob(body), (c) => c.charCodeAt(0)),
   });
   const bytes = new Uint8Array(await response.arrayBuffer());
@@ -102,6 +107,7 @@ class Sent(TypedDict):
     method: str
     headers: dict[str, str]
     body: str | None
+    timeout: int
 
 
 class Fetched(TypedDict):
@@ -124,6 +130,7 @@ class BrowserMiddleware:
     def __init__(self, crawler: Crawler, cdp_url: str, home: str, session: Session | None) -> None:
         assert crawler.stats is not None
         self._crawler = crawler
+        self._timeout = crawler.settings.getfloat("DOWNLOAD_TIMEOUT")
         self._pace = Pace(
             crawler.settings.getfloat("DOWNLOAD_DELAY"),
             crawler.settings.getint("CONCURRENT_REQUESTS_PER_DOMAIN"),
@@ -164,9 +171,10 @@ class BrowserMiddleware:
             headers={str(key): value for key, value in request.headers.to_unicode_dict().items()
                      if str(key).lower() not in {"cookie", "user-agent", "accept-encoding"}},
             body=base64.b64encode(request.body).decode() if request.body else None,
+            timeout=int(self._timeout * 1000),
         )  # fmt: skip
-        got = await self._paced(sent)
         solve = request.meta.get("solve", getattr(self._crawler.spider, "solve", False))
+        got = await self._paced(sent, request.url if request.meta.get(FILE) else self._home, solve)
         for _ in range(SOLVE_TRIES if solve else 0):
             if not self._challenged(sent, got):
                 break
@@ -185,29 +193,34 @@ class BrowserMiddleware:
         kind = responsetypes.from_args(headers=headers, url=got["url"], body=body)
         return kind(url=got["url"], status=got["status"], headers=headers, body=body, request=request)
 
-    async def _paced(self, sent: Sent) -> Fetched:
-        """`sent` fetched in the site's turn, and again, slower, while the portal answers with a rate limit. A crawl
-        that is stopping hands the rate limit back instead, and Scrapy's retry queues the request again, where the
-        stopping crawl saves it."""
+    async def _paced(self, sent: Sent, at: str, solve: bool) -> Fetched:
+        """`sent` fetched from the page on `at`'s site in the site's turn, and again, slower, while the portal answers
+        with a rate limit. A bot check that is still there after one slower try is handed back to a spider that
+        can't solve it, rather than slowing the whole site. A crawl that is stopping hands the rate limit back
+        instead, and Scrapy's retry queues the request again, where the stopping crawl saves it."""
         site = "{0.scheme}://{0.netloc}".format(urlsplit(sent["url"]))
-        for _ in range(RATE_TRIES):
+        for tries in range(RATE_TRIES):
             async with self._pace.turn(site):
-                got = await self._fetch(self._home, sent)
+                got = await self._fetch(at, sent)
             wait = pace.retry_after(got["status"], dict(got["headers"]))
             if wait is None:
                 self._pace.went_through(site)
                 return got
-            if self._pace.hurrying:
+            if self._pace.hurrying or (tries > 0 and not solve and self._challenged(sent, got)):
                 return got
-            await asyncio.sleep(self._pace.limited(site, wait))
+            self._pace.limited(site, wait)
         return got
 
     async def _fetch(self, at: str, sent: Sent) -> Fetched:
-        """`sent` fetched from the page on `at`'s site, or from one on its own site if that page may not fetch it."""
-        try:
-            return await (await self._page(at)).evaluate(FETCH, sent)
-        except PlaywrightError:
-            return await (await self._page(sent["url"])).evaluate(FETCH, sent)
+        """`sent` fetched from the page on `at`'s site, or from one on its own site if that page may not fetch it. A
+        request that runs past DOWNLOAD_TIMEOUT is a TimeoutError, which Scrapy retries."""
+        async with asyncio.timeout(self._timeout + PAGE_SLACK):
+            try:
+                return await (await self._page(at)).evaluate(FETCH, sent)
+            except PlaywrightError as error:
+                if "timeout" in str(error).lower() or "abort" in str(error).lower():
+                    raise TimeoutError(f"{sent['url']} didn't answer in {self._timeout:g} s") from error
+                return await (await self._page(sent["url"])).evaluate(FETCH, sent)
 
     def _challenged(self, sent: Sent, got: Fetched) -> bool:
         headers = dict(got["headers"])

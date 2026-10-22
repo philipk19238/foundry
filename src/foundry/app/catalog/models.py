@@ -49,11 +49,11 @@ class ScrapedNotice(BaseModel, frozen=True):
 
     @staticmethod
     def file_id(link: FileLink) -> str:
-        return Key.of("file", [link.url, link.name]).digest
+        return Key.of("file", [link.key, link.name]).digest
 
     def stored_files(self, saved: Mapping[str, SavedFile]) -> tuple[StoredFile, ...]:
-        """Its attachments as stored, from `saved`, the downloads by URL."""
-        return tuple(StoredFile.of(link, saved.get(link.url)) for link in self.listing.files)
+        """Its attachments as stored, from `saved`, the downloads by unsigned URL."""
+        return tuple(StoredFile.of(link, saved.get(link.key)) for link in self.listing.files)
 
     @property
     def anchor(self) -> tuple[str, str]:
