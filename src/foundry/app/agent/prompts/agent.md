@@ -70,9 +70,10 @@ no browser code. A firewall challenge is answered by opening the request as a pa
      and the attachment downloads. Look for them in the network traffic first; they are the most reliable.
    - **The page itself**, when there is no usable API: parse the HTML the server sends for the list and each
      detail. Most pages that look dynamic still load their data from a request you can call directly.
-   - **A real browser**, only when the data appears after JavaScript runs and no request returns it. The kit runs
-     Scrapy without a browser, so propose that change to `foundry.core` (see "Changing foundry itself") and say why
-     the cheaper ways didn't work.
+   - **A real browser**, only when the data appears after JavaScript runs and no request returns it. Live crawls
+     already send every request from a stealth browser on the portal, with its cookies, so an API that needs a
+     browser's session still works as plain requests; propose a change to `foundry.core` (see "Changing foundry
+     itself") only for data that no request returns, and say why the cheaper ways didn't work.
    Don't stop at a partial scraper: every opportunity the page lists (through its pagination, with its filters and
    stages as the page sets them), its details and its attachments' links. If attachments need a login the listing
    and details don't, keep each attachment's name and link and say so in `gaps`.
