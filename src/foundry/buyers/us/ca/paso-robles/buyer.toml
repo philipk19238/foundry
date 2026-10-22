@@ -1,0 +1,9 @@
+name = "City of El Paso De Robles"
+jurisdiction = "Paso Robles, California"
+
+[[portals]]
+kind = "platform"
+name = "demandstar"
+platform = "demandstar"
+tenant = "68ab6996-941d-43f0-bf43-a252f26c653d"
+url = "https://www.demandstar.com/app/agencies/california/city-of-el-paso-de-robles/procurement-opportunities/68ab6996-941d-43f0-bf43-a252f26c653d/"
