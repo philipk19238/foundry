@@ -43,7 +43,10 @@ class Recorder:
 
     async def _save(self, response: Response) -> None:
         request = response.request
-        if request.resource_type in SKIPPED or (urlsplit(request.url).hostname or "").endswith(BROWSER_HOSTS):
+        parts = urlsplit(request.url)
+        if parts.scheme not in ("http", "https") or request.resource_type in SKIPPED:
+            return
+        if (parts.hostname or "").endswith(BROWSER_HOSTS):
             return
         headers = await response.all_headers()
         sent = None
