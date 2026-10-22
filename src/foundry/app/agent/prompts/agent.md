@@ -19,6 +19,11 @@ They hold the how-to and the helper commands; open the one that fits before you 
 - `fixtures`: turn the recorded responses the spider needs into its fixtures.
 - `live-crawl`: run the whole crawl against the live portal exactly as foundry does, and fix what fails.
 - `sign-in`: whether a portal needs a sign-in, and how the scraper gets one.
+- `completeness`: prove the scraper gets every opportunity the page lists, and count it against the page.
+- `dates-and-timezones`: find the portal's time zone and check deadlines against the page.
+- `attachments`: make every file link one foundry can download, or say why it can't.
+- `platform-spiders`: a shared platform spider or a site of the buyer's own, and changing one safely.
+- `environment`: check your tools, Python and browser at the start, and fix known sandbox problems. Start here.
 
 ## The repo
 

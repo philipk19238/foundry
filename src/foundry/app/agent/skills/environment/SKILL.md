@@ -1,0 +1,41 @@
+---
+name: environment
+description: Check the sandbox before starting - foundry's tools are present, the right Python works, the browser answers - and fix the known sandbox problems. Use at the start of every run, and whenever a command fails in a way that looks like the environment rather than the portal.
+---
+
+# Your environment
+
+## Check it first
+
+Before any portal work:
+
+1. **Foundry's tools.** You should have `check_scraper`, `submit`, `request_help`, `account`, `credentials`,
+   `save_credential`, `propose_change` and `restart` from the `foundry` MCP server. If they're missing, say so once in
+   a message, keep working on what doesn't need them, and never claim you submitted. (One run lost them all and only
+   found out at the end.)
+2. **Python.** `"$FOUNDRY_PYTHON" -c "import scrapy, playwright, foundry.core"`. Always run Python as
+   `"$FOUNDRY_PYTHON"`; the shell's own `python` may lack Scrapy and Playwright.
+3. **The browser.** Connect to it once:
+
+   ```bash
+   "$FOUNDRY_PYTHON" - <<'PY'
+   import asyncio, os
+   from playwright.async_api import async_playwright
+   async def main():
+       async with async_playwright() as p:
+           browser = await p.chromium.connect_over_cdp(os.environ["FOUNDRY_BROWSER"])
+           print("browser ok,", len(browser.contexts[0].pages), "pages")
+   asyncio.run(main())
+   PY
+   ```
+
+## Known problems
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `Read-only file system: '/root/.local/...'` from Scrapy or a tool | home is read-only in the sandbox | `export XDG_STATE_HOME=/tmp/state XDG_CACHE_HOME=/tmp/cache` (foundry sets the first) |
+| `No module named scrapy` | the shell's `python` | use `"$FOUNDRY_PYTHON"` |
+| `.git` is read-only, or `git fetch` fails | your clone's remote is foundry's, not yours to fetch | work from what you have; foundry pushes your branch on submit |
+| a crawl reports a crash before any request | an environment error, not the parser | read the stderr it printed before changing the spider |
+
+An environment failure is not a portal failure: say which it is in your messages, so a person fixes the right thing.
