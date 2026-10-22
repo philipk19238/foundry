@@ -160,10 +160,11 @@ async def live(root: Path, key: str, browser: str) -> bool:
 
 async def run(root: Path, site: Site, live: bool, **job: object) -> bool:
     """Crawls `site` in a process of its own, as Foundry does, and prints what it found; True if it passed. A live
-    crawl also downloads the attachments, as foundry's do, and prints its progress every PROGRESS_SECONDS."""
+    crawl also downloads the attachments and keeps its queue on disk, as foundry's do (so a spider that leans on a
+    request's `cb_kwargs` being the same object fails here too), and prints its progress every PROGRESS_SECONDS."""
     with tempfile.TemporaryDirectory(prefix="foundry-run-") as folder:
         out = Path(folder)
-        extra = {"files": out / "files", "progress": out / "progress.json"} if live else {}
+        extra = {"files": out / "files", "progress": out / "progress.json", "state": out / "scrapy"} if live else {}
         crawl_job = CrawlJob.model_validate(
             {"spider": site.spider, "arguments": site.arguments, "listings": out / "listings.jsonl",
              "stats": out / "stats.json", **extra, **job}

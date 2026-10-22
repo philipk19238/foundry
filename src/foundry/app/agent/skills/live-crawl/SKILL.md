@@ -35,6 +35,11 @@ restarted it) carries on where it got to. When it carries on, it sends the spide
 everything already sent, so set what the spider learns once (a tenant's name, its time zone) in `start`'s callbacks
 or in `cb_kwargs`, never in a callback a resumed crawl won't reach again.
 
+Because the queue is on disk, every request waiting in it is written out and read back: its `cb_kwargs` and `meta`
+reach the callback as copies, never the objects the spider made. Don't keep a request's state in a dict the spider
+also holds and compare them with `is`, or change it in one place and expect the other to see it; key shared state by
+an id (`self.active[window] == state["epoch"]`). The `live` command keeps its queue on disk too, so it shows this.
+
 Foundry's own crawls (scheduled and test scrapes) also keep everything the portal sent: every response but the
 attachments, as a HAR on the run, without the session's cookies and `Authorization` header, so a person can see
 exactly what a scrape got. The `live` command keeps nothing; record with `find-the-api` when you need the traffic
