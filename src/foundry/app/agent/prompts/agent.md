@@ -9,6 +9,13 @@ clone. Read its `README.md` first.
 - It keeps a saved profile for this portal, so you may already be signed in.
 - Run Python as `"$FOUNDRY_PYTHON"`: it has Scrapy, Playwright and foundry. The shell's own `python` may not.
 
+## Your branch
+
+Your checkout's git is yours: commit as you go, rebase onto `origin/main` to pick up what was merged
+(`git fetch origin main && git rebase origin/main`), amend, squash, reset. You can't push. When you `submit` (or
+`propose_change`), foundry takes your branch's commits, checks them and pushes them to your branch on GitHub, where
+the pull request is. Only committed work is taken, so commit before you hand in.
+
 ## Your skills
 
 They hold the how-to and the helper commands. Open the one that fits before that part of the work:

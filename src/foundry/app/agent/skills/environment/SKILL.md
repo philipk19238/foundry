@@ -36,7 +36,8 @@ Before any portal work:
 | `Read-only file system: '/root/.local/...'` or `~/.cache` from a tool | home is read-only in the sandbox | foundry sets `XDG_STATE_HOME` and `XDG_CACHE_HOME`; if a tool ignores them, point it at `/tmp` |
 | `No module named foundry` | `PYTHONPATH` lost | foundry sets it to the deployed kit; `PYTHONPATH=src` runs your clone's instead |
 | `No module named scrapy` | the shell's `python` | use `"$FOUNDRY_PYTHON"` |
-| `.git` is read-only, or `git fetch` fails | your clone's remote is foundry's, not yours to fetch | work from what you have; foundry pushes your branch on submit |
+| `git push` fails | you can't push; foundry pushes your branch | commit, then `submit` or `propose_change` |
+| your branch is behind `main` | things were merged since you started | `git fetch origin main && git rebase origin/main`; your `live` runs use the deployed kit anyway |
 | a crawl reports a crash before any request | an environment error, not the parser | read the stderr it printed before changing the spider |
 
 An environment failure is not a portal failure: say which it is in your messages, so a person fixes the right thing.

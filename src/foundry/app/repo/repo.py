@@ -12,7 +12,7 @@ from pathlib import Path
 from pydantic import SecretStr
 
 from foundry.app import exceptions
-from foundry.app.repo.models import BRANCHES
+from foundry.app.repo.models import BRANCHES, RUN_REFS
 from foundry.app.settings import Settings
 
 GIT_TIMEOUT = 300
@@ -100,7 +100,8 @@ class Mirror:
 
 
 class Clones:
-    """Runs' clones of the repo. A run works on its own branch under `agents/` and pushes only that branch."""
+    """Runs' clones of the repo. A run works on its own branch under `agents/`, with git of its own; foundry takes its
+    commits into the mirror and pushes them to that branch only."""
 
     def __init__(self, git: Git, mirror: Mirror, settings: Settings) -> None:
         self._git = git
@@ -118,45 +119,30 @@ class Clones:
         await self._git.run(checkout, "checkout", "--quiet", "-b", branch)
         return checkout
 
-    async def commit(self, checkout: Path, message: str) -> None:
-        await self._git.run(checkout, "add", "-A")
-        if not await self._git.succeeds(checkout, "diff", "--cached", "--quiet"):
-            await self._git.run(checkout, "commit", "--quiet", "-m", message)
+    async def take(self, checkout: Path, branch: str) -> str:
+        """The commit the run's checkout is at, fetched into the mirror. The agent owns its checkout's git, so foundry
+        never runs git inside it (a hook or a config entry there would run in foundry's process, beside the GitHub
+        token): it reads the run's commits from it, as a remote. Work the agent hasn't committed isn't taken."""
+        await self._mirror.fetch()
+        ref = f"{RUN_REFS}{branch}"
+        await self._git.run(self._mirror.folder, "fetch", "--quiet", "--no-tags", str(checkout), f"+HEAD:{ref}")
+        return await self._git.run(self._mirror.folder, "rev-parse", ref)
 
-    async def changed(self, checkout: Path) -> list[str]:
-        """The paths the branch changes against the latest `main`."""
-        await self._git.run(checkout, "fetch", "--quiet", "origin", "main")
-        return (await self._git.run(checkout, "diff", "--name-only", "origin/main...HEAD")).split()
+    async def changed(self, commit: str) -> list[str]:
+        """The paths `commit` changes against the latest `main`."""
+        return (await self._git.run(self._mirror.folder, "diff", "--name-only", f"refs/heads/main...{commit}")).split()
 
-    async def ahead(self, checkout: Path) -> bool:
-        """Whether the branch has commits the latest `main` doesn't."""
-        await self._git.run(checkout, "fetch", "--quiet", "origin", "main")
-        return await self._git.run(checkout, "rev-list", "--count", "origin/main..HEAD") != "0"
+    async def ahead(self, commit: str) -> bool:
+        """Whether `commit` has commits the latest `main` doesn't."""
+        return await self._git.run(self._mirror.folder, "rev-list", "--count", f"refs/heads/main..{commit}") != "0"
 
-    async def landed(self, checkout: Path) -> bool:
-        """Whether everything the branch changes is already on the latest `main`, as once its pull request was
-        squash-merged: a new change must then start from `main`, or its pull request conflicts with the merge."""
-        changed = await self.changed(checkout)
-        if not changed:
-            return False
-        return await self._git.succeeds(checkout, "diff", "--quiet", "origin/main", "HEAD", "--", *changed)
-
-    async def push(self, checkout: Path) -> str:
-        """Pushes the run's branch to GitHub and returns its name. A run owns its branch, so it may rewrite it."""
-        branch = await self._git.run(checkout, "branch", "--show-current")
+    async def push(self, commit: str, branch: str) -> str:
+        """Pushes `commit` to the run's own branch on GitHub and returns its name: foundry names the branch, so an
+        agent's commits reach only `agents/<run>`, never `main`. A run owns its branch, so it may rewrite it."""
         if not branch.startswith(BRANCHES):
             raise exceptions.GitFailed("push", f"{branch} is not a run branch; runs push only {BRANCHES}* branches")
         if self._token is None:
             raise exceptions.NoGitHubToken()
-        await self._git.authorized(checkout, self._token, "push", "--quiet", "--force", "origin", f"HEAD:{branch}")
+        refspec = f"{commit}:refs/heads/{branch}"
+        await self._git.authorized(self._mirror.folder, self._token, "push", "--quiet", "--force", "origin", refspec)
         return branch
-
-    async def onto_main(self, checkout: Path) -> None:
-        """Moves the run's branch onto the latest `main`, keeping the work it has not committed. Used after a pull
-        request from this branch was merged, so its commits are already on `main`."""
-        branch = await self._git.run(checkout, "branch", "--show-current")
-        await self._git.run(checkout, "fetch", "--quiet", "origin", "main")
-        await self._git.run(checkout, "stash", "push", "--quiet", "--include-untracked")
-        await self._git.run(checkout, "checkout", "--quiet", "-B", branch, "origin/main")
-        if await self._git.run(checkout, "stash", "list"):
-            await self._git.run(checkout, "stash", "pop", "--quiet")
