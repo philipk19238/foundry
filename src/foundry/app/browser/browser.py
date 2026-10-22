@@ -4,8 +4,8 @@ import uuid
 from collections.abc import AsyncGenerator
 
 from cryptography.fernet import Fernet
+from playwright.async_api import Browser, async_playwright
 from playwright.async_api import Error as PlaywrightError
-from playwright.async_api import async_playwright
 
 from foundry.app import exceptions
 from foundry.app.browser import models, store
@@ -15,6 +15,7 @@ from foundry.app.db.models.access import Credential
 from foundry.core.bronze import Secrets
 from foundry.core.models import Access, Cookie, Session
 
+KEEP_ALIVE_SECONDS = 60
 PAGE_STATE = "() => [location.origin, Object.fromEntries(Object.entries(sessionStorage)), navigator.userAgent]"
 
 
@@ -42,11 +43,39 @@ class Browsers:
         finally:
             await self._api.close(browser)
 
+    @contextlib.asynccontextmanager
+    async def kept_alive(self, browser: models.Browser) -> AsyncGenerator[None, None]:
+        """Holds a connection to the browser while the block runs, so Kernel doesn't count it idle while the agent
+        works in its shell for a long while; a worker that dies drops the connection, and the browser idles out as
+        before. A browser already gone is left to the agent to notice."""
+        async with async_playwright() as playwright:
+            try:
+                connected = await playwright.chromium.connect_over_cdp(browser.cdp_url)
+            except PlaywrightError:
+                connected = None
+            pinging = asyncio.create_task(self._ping(connected)) if connected is not None else None
+            try:
+                yield
+            finally:
+                if pinging is not None:
+                    pinging.cancel()
+
+    async def _ping(self, connected: Browser) -> None:
+        """Sends the browser a cheap command every KEEP_ALIVE_SECONDS, until it goes away."""
+        with contextlib.suppress(PlaywrightError):
+            cdp = await connected.new_browser_cdp_session()
+            while True:
+                await asyncio.sleep(KEEP_ALIVE_SECONDS)
+                await cdp.send("Browser.getVersion")
+
     async def session(self, browser: models.Browser, headers: dict[str, str]) -> Session:
         """Everything the browser holds for the portal: cookies and localStorage from Playwright's storage state,
-        each open page's sessionStorage, and its user agent."""
+        each open page's sessionStorage, and its user agent. BrowserGone once Kernel has closed it."""
         async with async_playwright() as playwright:
-            connected = await playwright.chromium.connect_over_cdp(browser.cdp_url)
+            try:
+                connected = await playwright.chromium.connect_over_cdp(browser.cdp_url)
+            except PlaywrightError as error:
+                raise exceptions.BrowserGone(browser.session_id) from error
             context = connected.contexts[0]
             state = await context.storage_state()
             session_storage: dict[str, dict[str, str]] = {}

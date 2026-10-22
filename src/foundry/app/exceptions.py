@@ -65,6 +65,11 @@ class NotifyFailed(Error):
         super().__init__(f"The help email did not go out ({reason}); the request is still on the help queue page.")
 
 
+class BrowserGone(Error):
+    def __init__(self, session_id: str) -> None:
+        super().__init__(f"The Kernel browser {session_id} has closed.")
+
+
 class KernelRefused(Error):
     def __init__(self, action: str) -> None:
         super().__init__(f"Kernel would not {action}; check the Kernel key and plan.")
