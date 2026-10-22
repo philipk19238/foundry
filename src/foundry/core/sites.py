@@ -61,6 +61,7 @@ class Sites:
                     arguments={"tenant": tenant},
                     fixtures=own if own.exists() else code / "fixtures.json",
                     delay=portal.delay,
+                    stall=portal.stall,
                 )
             case SitePortal():
                 return Site(
@@ -70,4 +71,5 @@ class Sites:
                     arguments={},
                     fixtures=buyer / portal.name / "fixtures.json",
                     delay=portal.delay,
+                    stall=portal.stall,
                 )

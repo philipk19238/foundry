@@ -15,15 +15,18 @@ RATE_LIMITED = "foundry/rate_limited"
 SLOWED_TO = "foundry/slowed_to"
 SLOWEST = 60.0
 FIRST_SLOWDOWN = 1.0
+EASING = 0.8
 
 
 class Pace:
     """Per site: at most `concurrency` requests at once, at least `delay` seconds apart. A rate limit (a 429, a
     `Retry-After`, a firewall's challenge header) doubles that site's delay, or takes the wait the portal asked for,
-    up to a minute; the crawl's stats keep how often it happened and the slowest delay it came to, which is the pace
-    to set in `buyer.toml`."""
+    up to a minute, and every request that goes through eases it back toward `delay`, so one burst of limits doesn't
+    slow the rest of the crawl. The crawl's stats keep how often it happened and the slowest delay it came to, which
+    is the pace to set in `buyer.toml`."""
 
     def __init__(self, delay: float, concurrency: int, stats: StatsCollector) -> None:
+        self._base = delay
         self._delays: defaultdict[str, float] = defaultdict(lambda: delay)
         self._turns: defaultdict[str, asyncio.Semaphore] = defaultdict(lambda: asyncio.Semaphore(concurrency))
         self._next: defaultdict[str, float] = defaultdict(float)
@@ -39,6 +42,10 @@ class Pace:
                 await asyncio.sleep(max(0.0, self._next[site] - loop.time()))
                 self._next[site] = loop.time() + self._delays[site]
             yield
+
+    def went_through(self, site: str) -> None:
+        """A request the site answered without a rate limit: ease its delay back toward the base pace."""
+        self._delays[site] = max(self._base, self._delays[site] * EASING)
 
     def limited(self, site: str, retry_after: float | None) -> float:
         """Slows `site` down after a rate limit; returns the seconds to wait before sending again."""

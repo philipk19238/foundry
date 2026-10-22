@@ -1,0 +1,12 @@
+<header class="side-head"><span>Scrapers</span>{% if help %}<a class="badge waiting" href="/help">{{ help | length }} need{{ "s" if help | length == 1 }} you</a>{% endif %}</header>
+<ul>
+  {% for source in sources %}
+  {% set stage = stages[source.id] %}
+  <li><a href="/sources/{{ source.id }}">
+    <span class="side-name">{{ source.name }}</span>
+    <span class="side-stage {{ stage }}">{{ stage.label }}{% if stage == "live" and source.previous_valid %} · {{ source.previous_valid }} listings{% endif %}</span>
+  </a></li>
+  {% else %}
+  <li class="side-empty">No scrapers yet.</li>
+  {% endfor %}
+</ul>

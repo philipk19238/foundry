@@ -18,6 +18,8 @@
 import argparse
 import asyncio
 import importlib.util
+import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -31,9 +33,24 @@ from scrapy.settings import Settings
 from scrapy.utils.log import configure_logging
 
 from foundry.core import challenges, pace, recorder, spider
-from foundry.core.models import CrawlJob, CrawlStats, Fixture, Site
+from foundry.core.models import CrawlJob, CrawlProgress, CrawlStats, Fixture, Site
 from foundry.core.recorder import Recorder
 from foundry.core.sites import Sites
+
+STOPPED_CLEANLY = "stopped-cleanly"
+
+
+def resumable(job: CrawlJob) -> None:
+    """Scrapy saves the requests still to send only when a crawl closes, as SIGTERM closes it. A crawl killed outright
+    (its machine died) left a queue that reads as empty, and carrying it on would send nothing: start it over, keeping
+    the attachments already downloaded."""
+    assert job.state is not None
+    if job.state.exists() and not (job.state / STOPPED_CLEANLY).exists():
+        shutil.rmtree(job.state)
+        job.listings.unlink(missing_ok=True)
+        if job.progress is not None:
+            job.progress.unlink(missing_ok=True)
+    (job.state / STOPPED_CLEANLY).unlink(missing_ok=True)
 
 
 async def crawl(job: CrawlJob) -> None:
@@ -42,17 +59,27 @@ async def crawl(job: CrawlJob) -> None:
     module = importlib.util.module_from_spec(found)
     found.loader.exec_module(module)
     (portal,) = spider.spiders(module)
-    middlewares = {"foundry.core.spider.SessionMiddleware": 500}
+    middlewares = {"foundry.core.middlewares.SessionMiddleware": 500}
     if job.fixtures is not None:
-        middlewares["foundry.core.spider.ReplayMiddleware"] = 950
+        middlewares["foundry.core.middlewares.ReplayMiddleware"] = 950
     if job.browser is not None:
-        middlewares["foundry.core.spider.BrowserMiddleware"] = 960
+        middlewares["foundry.core.middlewares.BrowserMiddleware"] = 960
     settings = Settings(
         {
             "TWISTED_REACTOR_ENABLED": False,
             "DOWNLOADER_MIDDLEWARES": middlewares,
-            "SPIDER_MIDDLEWARES": {"foundry.core.spider.ErrorsMiddleware": 100},
-            "ITEM_PIPELINES": {"foundry.core.spider.ListingPipeline": 100},
+            "SPIDER_MIDDLEWARES": {
+                "foundry.core.middlewares.ResumeMiddleware": 50,
+                "foundry.core.middlewares.ErrorsMiddleware": 100,
+            },
+            "ITEM_PIPELINES": {
+                "foundry.core.pipelines.FilesPipeline": 50,
+                "foundry.core.pipelines.ListingPipeline": 100,
+            },
+            "EXTENSIONS": {"foundry.core.extensions.ProgressExtension": 500},
+            "FOUNDRY_FILES": str(job.files) if job.files is not None else "",
+            "FOUNDRY_KNOWN_FILES": job.known_files,
+            "FOUNDRY_PROGRESS": str(job.progress) if job.progress is not None else "",
             "FOUNDRY_LISTINGS": str(job.listings),
             "FOUNDRY_SESSION": job.session.model_dump_json() if job.session is not None else "",
             "FOUNDRY_CREDENTIALS": job.credentials,
@@ -62,14 +89,21 @@ async def crawl(job: CrawlJob) -> None:
             "LOG_LEVEL": "INFO",
         }
     )
+    if job.state is not None:
+        settings.set("JOBDIR", str(job.state))
     if job.delay:
         settings.set("DOWNLOAD_DELAY", job.delay, priority="cmdline")
         settings.set("CONCURRENT_REQUESTS_PER_DOMAIN", 1, priority="cmdline")
         settings.set("AUTOTHROTTLE_ENABLED", False, priority="cmdline")
+    if job.state is not None:
+        resumable(job)
     configure_logging(settings)
     runner = AsyncCrawlerRunner(settings)
     crawler = runner.create_crawler(portal)
+    asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, lambda: asyncio.ensure_future(crawler.stop_async()))
     await runner.crawl(crawler, **job.arguments)
+    if job.state is not None:
+        (job.state / STOPPED_CLEANLY).touch()
     assert crawler.stats is not None
     stats = crawler.stats.get_stats()
     report = CrawlStats(
@@ -80,36 +114,56 @@ async def crawl(job: CrawlJob) -> None:
         challenged=stats.get(spider.CHALLENGED, 0),
         rate_limited=stats.get(pace.RATE_LIMITED, 0),
         slowed_to=stats.get(pace.SLOWED_TO, 0),
+        files_saved=stats.get(spider.FILES_SAVED, 0),
+        files_failed=stats.get(spider.FILES_FAILED, 0),
         crashes=stats.get(spider.CRASHES, 0) + stats.get("log_count/ERROR", 0),
         examples=tuple(str(value) for key, value in stats.items() if key.startswith(spider.EXAMPLE)),
     )
     job.stats.write_text(report.model_dump_json())
 
 
+PROGRESS_SECONDS = 15.0
+
+
 async def check(root: Path, keys: Iterable[str]) -> bool:
     passed = True
     for site in (Sites(root).get(key) for key in keys):
         fixtures = TypeAdapter(list[Fixture]).validate_json(site.fixtures.read_bytes())
-        passed = await run(root, site, fixtures=fixtures) and passed
+        passed = await run(root, site, live=False, fixtures=fixtures) and passed
     return passed
 
 
 async def live(root: Path, key: str, browser: str) -> bool:
     """One crawl of the live portal exactly as Foundry runs it, from the stealth browser at `browser`."""
     site = Sites(root).get(key)
-    return await run(root, site, browser=browser, home=site.url, delay=site.delay)
+    return await run(root, site, live=True, browser=browser, home=site.url, delay=site.delay)
 
 
-async def run(root: Path, site: Site, **job: object) -> bool:
-    """Crawls `site` in a process of its own, as Foundry does, and prints what it found; True if it passed."""
+async def run(root: Path, site: Site, live: bool, **job: object) -> bool:
+    """Crawls `site` in a process of its own, as Foundry does, and prints what it found; True if it passed. A live
+    crawl also downloads the attachments, as foundry's do, and prints its progress every PROGRESS_SECONDS."""
     with tempfile.TemporaryDirectory(prefix="foundry-run-") as folder:
         out = Path(folder)
+        extra = {"files": out / "files", "progress": out / "progress.json"} if live else {}
         crawl_job = CrawlJob.model_validate(
             {"spider": site.spider, "arguments": site.arguments, "listings": out / "listings.jsonl",
-             "stats": out / "stats.json", **job}
+             "stats": out / "stats.json", **extra, **job}
         )  # fmt: skip
+        if crawl_job.files is not None:
+            crawl_job.files.mkdir()
         (out / "job.json").write_text(crawl_job.model_dump_json())
-        subprocess.run([sys.executable, "-m", "foundry.core", "crawl", str(out / "job.json")], cwd=root, check=False)
+        process = await asyncio.create_subprocess_exec(
+            sys.executable, "-m", "foundry.core", "crawl", str(out / "job.json"), cwd=root
+        )
+        while True:
+            try:
+                await asyncio.wait_for(process.wait(), PROGRESS_SECONDS)
+                break
+            except TimeoutError:
+                if crawl_job.progress is not None and crawl_job.progress.exists():
+                    now = CrawlProgress.model_validate_json(crawl_job.progress.read_text())
+                    print(f"... {now.listings} listings, {now.files_saved} files, {now.requests} requests; "
+                          f"last {now.last_url[:100]}", flush=True)  # fmt: skip
         stats = (
             CrawlStats.model_validate_json(crawl_job.stats.read_text())
             if crawl_job.stats.exists()
@@ -123,6 +177,8 @@ async def run(root: Path, site: Site, **job: object) -> bool:
         if stats.rate_limited
         else ""
     )
+    if live:
+        refused += f", {stats.files_saved} files downloaded, {stats.files_failed} failed"
     print(f"{'PASS' if stats.passed else 'FAIL'} {site.key}: {stats.valid} listings, {stats.invalid} invalid, "
           f"{stats.crashes} crashes, logged out {stats.logged_out}{refused}")  # fmt: skip
     for example in stats.examples:

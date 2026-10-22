@@ -97,9 +97,14 @@ class Session(BaseModel, frozen=True):
         return "; ".join(f"{cookie.name}={cookie.value}" for cookie in self.cookies)
 
 
+STALL_MINUTES = 5.0
+
+
 class PlatformPortal(BaseModel, frozen=True):
     """A buyer's page on a shared platform: the platform's spider, pointed at this buyer's tenant. `delay` is the
-    seconds between requests the portal tolerates (0 leaves the spider's own pace)."""
+    seconds between requests the portal tolerates (0 leaves the spider's own pace); `stall` how many minutes a crawl
+    may go without sending a request before foundry stops it as stuck (raise it for a portal whose bot check or rate
+    limit makes it wait longer)."""
 
     kind: Literal["platform"] = "platform"
     name: str
@@ -107,16 +112,20 @@ class PlatformPortal(BaseModel, frozen=True):
     tenant: str
     url: str
     delay: float = 0
+    stall: float = STALL_MINUTES
 
 
 class SitePortal(BaseModel, frozen=True):
     """A buyer's own one-off site, with its spider in a folder of the same name beside `buyer.toml`. `delay` is the
-    seconds between requests the portal tolerates (0 leaves the spider's own pace)."""
+    seconds between requests the portal tolerates (0 leaves the spider's own pace); `stall` how many minutes a crawl
+    may go without sending a request before foundry stops it as stuck (raise it for a portal whose bot check or rate
+    limit makes it wait longer)."""
 
     kind: Literal["site"] = "site"
     name: str
     url: str
     delay: float = 0
+    stall: float = STALL_MINUTES
 
 
 Portal = Annotated[PlatformPortal | SitePortal, Field(discriminator="kind")]
@@ -140,6 +149,7 @@ class Site(BaseModel, frozen=True):
     arguments: dict[str, str]
     fixtures: Path
     delay: float = 0
+    stall: float = STALL_MINUTES
 
 
 class Access(BaseModel, frozen=True):
@@ -153,7 +163,10 @@ class Access(BaseModel, frozen=True):
 class CrawlJob(BaseModel, frozen=True):
     """What the crawl process is told: the spider to run, where to write, and either a session (live) or fixtures
     (replayed offline). A live crawl given `browser` (a stealth browser's CDP URL) sends every request from it,
-    starting at the portal's page, `home`."""
+    starting at the portal's page, `home`. Given `files`, it downloads every attachment it finds into that folder as
+    it goes, except those at `known_files` URLs; given `progress`, it writes how far it has got there every few
+    seconds. Given `state`, a folder that outlives the process, it keeps the requests still to send and those already
+    sent there (Scrapy's JOBDIR), so the same job run again carries on where a killed one stopped."""
 
     spider: Path
     arguments: dict[str, str]
@@ -165,6 +178,10 @@ class CrawlJob(BaseModel, frozen=True):
     browser: str | None = None
     home: str = ""
     delay: float = 0
+    files: Path | None = None
+    known_files: list[str] = []
+    progress: Path | None = None
+    state: Path | None = None
 
 
 class CrawlStats(BaseModel, frozen=True):
@@ -177,6 +194,8 @@ class CrawlStats(BaseModel, frozen=True):
     challenged: int = 0
     rate_limited: int = 0
     slowed_to: float = 0
+    files_saved: int = 0
+    files_failed: int = 0
     crashes: int = 0
     examples: tuple[str, ...] = ()
 
@@ -186,3 +205,28 @@ class CrawlStats(BaseModel, frozen=True):
         return (
             self.valid > 0 and self.invalid == 0 and self.crashes == 0 and not self.logged_out and not self.challenged
         )
+
+
+class SavedFile(BaseModel, frozen=True):
+    """An attachment a live crawl downloaded, kept in its files folder under `sha256`."""
+
+    url: str
+    name: str
+    sha256: str
+    content_type: str | None
+    size: int
+
+
+class CrawlProgress(BaseModel, frozen=True):
+    """How far a running crawl has got, written every few seconds, so a person (and foundry) can see it is alive:
+    `at` is when it was written, `last_url` the last response it got."""
+
+    listings: int = 0
+    invalid: int = 0
+    requests: int = 0
+    files_saved: int = 0
+    files_failed: int = 0
+    rate_limited: int = 0
+    challenged: int = 0
+    last_url: str = ""
+    at: dt.datetime

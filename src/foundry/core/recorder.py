@@ -17,8 +17,8 @@ from urllib.parse import urlsplit
 from playwright.async_api import Error as PlaywrightError
 from playwright.async_api import Page, Response, async_playwright
 
+from foundry.core.middlewares import FETCH, Fetched, Sent
 from foundry.core.models import Exchange, Fixture
-from foundry.core.spider import FETCH, Fetched, Sent
 
 if TYPE_CHECKING:
     from playwright._impl._api_structures import SetCookieParam

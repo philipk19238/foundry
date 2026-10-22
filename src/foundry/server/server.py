@@ -17,7 +17,7 @@ from foundry.app import exceptions as errors
 from foundry.app.auth.auth import Logins, Users
 from foundry.app.auth.models import Token, UserView
 from foundry.app.db.models.auth import Role
-from foundry.app.runs.runs import Runs
+from foundry.app.runs.runs import Queue
 from foundry.app.settings import settings
 from foundry.server import exceptions
 from foundry.server.routes import api, auth, files, mcp, pages, scrapers
@@ -41,8 +41,8 @@ async def lifespan(app: FastAPI, registry: svcs.Registry) -> AsyncGenerator[None
     registry.register_value(Jinja2Templates, Jinja2Templates(directory=HERE / "templates", context_processors=[assets]))
     await worker.booted(registry)
     async with svcs.Container(registry) as services:
-        runs = await services.aget(Runs)
-        await runs.reap()
+        queue = await services.aget(Queue)
+        await queue.revive()
     if settings.seed_email is not None and settings.seed_password is not None:
         async with svcs.Container(registry) as services:
             users = await services.aget(Users)

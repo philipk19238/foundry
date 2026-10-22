@@ -15,10 +15,10 @@ from foundry.app.db.db import now
 from foundry.app.db.models.runs import RunKind
 from foundry.app.help.help import HelpQueue, RunChat
 from foundry.app.progress.progress import Tracker
-from foundry.app.runs.runs import RunFeed, RunHistory, Timeline
+from foundry.app.runs.runs import Queue, RunFeed, RunHistory, Timeline
 from foundry.app.scrapers.scrapers import ScraperHistory
 from foundry.app.settings import Settings
-from foundry.server.routes.auth import SignedIn
+from foundry.server.routes.auth import Admin, SignedIn
 
 router = APIRouter(default_response_class=HTMLResponse)
 STREAM_SECONDS = 55
@@ -37,6 +37,14 @@ async def home(request: Request, services: SignedIn) -> Response:
         "help": await help_queue.live(),
     }
     return templates.TemplateResponse(request, "home.html", context)
+
+
+@router.get("/sidebar")
+async def sidebar(request: Request, services: SignedIn) -> Response:
+    """Every scraper with its stage, for the sidebar on every page; it refreshes itself."""
+    templates, catalog, tracker, help_queue = await services.aget(Jinja2Templates, Catalog, Tracker, HelpQueue)
+    context = {"sources": await catalog.sources(), "stages": await tracker.stages(), "help": await help_queue.live()}
+    return templates.TemplateResponse(request, "_sidebar.html", context)
 
 
 @router.get("/opportunities")
@@ -86,6 +94,23 @@ async def run(request: Request, run_id: uuid.UUID, services: SignedIn) -> Respon
         "repo": (await services.aget(Settings)).repo,
     }
     return templates.TemplateResponse(request, "run.html", context)
+
+
+@router.get("/runs/{run_id}/progress")
+async def crawl_progress(request: Request, run_id: uuid.UUID, services: SignedIn) -> Response:
+    """A scrape's live counts, polled while it runs."""
+    templates, user, runs = await services.aget(Jinja2Templates, UserView, RunHistory)
+    context = {"user": user, "run": await runs.run(run_id), "poll": True}
+    return templates.TemplateResponse(request, "_crawl_progress.html", context)
+
+
+@router.post("/runs/{run_id}/restart")
+async def restart(request: Request, run_id: uuid.UUID, services: Admin) -> Response:
+    """Restarts a stuck or failed scrape; it carries on where it got to."""
+    templates, user, runs, queue = await services.aget(Jinja2Templates, UserView, RunHistory, Queue)
+    await queue.restart(await runs.run(run_id))
+    context = {"user": user, "run": await runs.run(run_id), "poll": True}
+    return templates.TemplateResponse(request, "_crawl_progress.html", context)
 
 
 @router.get("/runs/{run_id}/events")
@@ -186,7 +211,8 @@ async def help_page(request: Request, help_id: uuid.UUID, services: SignedIn) ->
 async def claim(help_id: uuid.UUID, services: SignedIn) -> Response:
     user, desk = await services.aget(UserView, HelpQueue)
     request_ = await desk.claim(help_id, user)
-    return RedirectResponse(f"/runs/{request_.run_id}", status_code=status.HTTP_303_SEE_OTHER)
+    run = await (await services.aget(RunHistory)).run(request_.run_id)
+    return RedirectResponse(f"/sources/{run.source_id}/browser", status_code=status.HTTP_303_SEE_OTHER)
 
 
 @router.post("/help/{help_id}/give-back")

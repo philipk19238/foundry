@@ -2,12 +2,13 @@ import datetime as dt
 import enum
 import json
 import uuid
+from collections.abc import Mapping
 
 from pydantic import BaseModel, ConfigDict, JsonValue
 
 from foundry.app.core.models import Key
 from foundry.app.db.models.catalog import SourceStatus
-from foundry.core.models import FileLink, Listing
+from foundry.core.models import FileLink, Listing, SavedFile
 
 
 class StoredFile(BaseModel, frozen=True):
@@ -23,6 +24,19 @@ class StoredFile(BaseModel, frozen=True):
     content_type: str | None
     size: int
 
+    @classmethod
+    def of(cls, link: FileLink, saved: SavedFile | None) -> "StoredFile":
+        """A link as stored: with the bytes a crawl downloaded, or without a hash when its download failed."""
+        file_id = ScrapedNotice.file_id(link)
+        if saved is None:
+            return cls(
+                file_id=file_id, name=link.name, url=link.url, sha256=None, etag=None, content_type=None, size=0
+            )  # fmt: skip
+        return cls(
+            file_id=file_id, name=link.name, url=link.url, sha256=saved.sha256, etag=None,
+            content_type=saved.content_type, size=saved.size,
+        )  # fmt: skip
+
 
 class ScrapedNotice(BaseModel, frozen=True):
     """A listing from one crawl, ready to store. The ids follow formal/foundry_rules: the opportunity from the portal
@@ -36,6 +50,10 @@ class ScrapedNotice(BaseModel, frozen=True):
     @staticmethod
     def file_id(link: FileLink) -> str:
         return Key.of("file", [link.url, link.name]).digest
+
+    def stored_files(self, saved: Mapping[str, SavedFile]) -> tuple[StoredFile, ...]:
+        """Its attachments as stored, from `saved`, the downloads by URL."""
+        return tuple(StoredFile.of(link, saved.get(link.url)) for link in self.listing.files)
 
     @property
     def anchor(self) -> tuple[str, str]:

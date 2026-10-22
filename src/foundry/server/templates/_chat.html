@@ -1,70 +1,67 @@
-<div class="c-split">
-{% if run.has_agent %}
-<section class="c-chat" id="chat-sync">
-  <ol class="c-lines" id="chat">
-    {% for event in events if event.in_chat %}{% include "_chat_line.html" %}{% else %}
-    <li class="c-empty" id="chat-empty">The agent's messages will show up here.</li>
-    {% endfor %}
-  </ol>
-  {% set doing = (events | rejectattr("in_chat") | list | last) if events else none %}
-  {% include "_ticker.html" %}
-  <section id="help-box">{% include "_help_box.html" %}</section>
-  <div class="c-dock">
-    {% if run.has_agent %}
-    <form class="c-composer" id="composer" method="post" action="/runs/{{ run.id }}/messages"
-          hx-post="/runs/{{ run.id }}/messages" hx-include="#after" hx-swap="none" hx-sync="#chat-sync:queue all"
-          hx-disabled-elt="find .c-send" hx-on::before-request="document.getElementById('c-error').textContent = ''"
-          hx-on::after-request="foundrySent(this, event)">
-      <textarea name="text" rows="1" required placeholder="{{ "Message the agent…" if run.is_active else "Tell the agent what to change…" }}"
-                oninput="this.style.height = 'auto'; this.style.height = Math.min(this.scrollHeight, 200) + 'px'"
-                onkeydown="if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); this.form.requestSubmit(); }"></textarea>
-      <div class="c-actions">
-        <button type="button" class="c-ghost" hx-post="/runs/{{ run.id }}/takeover" hx-include="#after" hx-swap="none"
-                hx-sync="#chat-sync:queue all" title="Asks the agent to pause and hand you its browser">✋ Take over</button>
-        <button class="c-send" aria-label="Send"><span class="c-arrow">↑</span><span class="c-spin" aria-hidden="true"></span></button>
-      </div>
-    </form>
-    <p class="c-error" id="c-error" role="alert"></p>
-    {% include "_hint.html" %}
-    {% endif %}
+<div class="ws-thread" id="thread">
+  <div class="c-chat" id="chat-sync">
+    <div class="c-runline"><span class="small">{% with kind=run.kind %}{% include "_job.html" %}{% endwith %} <span class="muted">started {{ run.created_at.strftime("%b %d at %H:%M") }}</span></span><span id="run-status" class="facts">{% include "_run_status.html" %}</span></div>
+    {% include "_built.html" %}
+    <ol class="c-lines" id="chat">
+      {% for event in events if event.in_chat %}{% include "_chat_line.html" %}{% else %}
+      <li class="c-empty" id="chat-empty">The agent's messages will show up here.</li>
+      {% endfor %}
+    </ol>
+    {% set doing = (events | rejectattr("in_chat") | list | last) if events else none %}
+    {% include "_ticker.html" %}
   </div>
-</section>
-{% endif %}
-
-<aside class="c-log" aria-label="The agent's work log">
-  <header><span>Work log</span><span class="muted">every command, edit and tool call</span></header>
-  <ol class="timeline" id="timeline">
-    {% for event in events %}{% include "_event.html" %}{% endfor %}
-  </ol>
-</aside>
+</div>
+<div class="c-dock">
+  <section id="help-box">{% include "_help_box.html" %}</section>
+  <form class="c-composer" id="composer" method="post" action="/runs/{{ run.id }}/messages"
+        hx-post="/runs/{{ run.id }}/messages" hx-include="#after" hx-swap="none" hx-sync="#chat-sync:queue all"
+        hx-disabled-elt="find .c-send" hx-on::before-request="document.getElementById('c-error').textContent = ''"
+        hx-on::after-request="foundrySent(this, event)">
+    <textarea name="text" rows="2" required placeholder="{{ "Message the agent or ask it something" if run.is_active else "Tell the agent what to change" }}"
+              oninput="this.style.height = 'auto'; this.style.height = Math.min(this.scrollHeight, 220) + 'px'"
+              onkeydown="if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); this.form.requestSubmit(); }"></textarea>
+    <div class="c-actions">
+      <button type="button" class="btn ghost xs" hx-post="/runs/{{ run.id }}/takeover" hx-include="#after" hx-swap="none"
+              hx-sync="#chat-sync:queue all" title="Asks the agent to pause and hand you its browser">✋ Take over</button>
+      <span class="c-grow"></span>
+      {% include "_hint.html" %}
+      <button class="c-send" aria-label="Send"><span class="c-arrow">↑</span><span class="c-spin" aria-hidden="true"></span></button>
+    </div>
+  </form>
+  <p class="c-error" id="c-error" role="alert"></p>
 </div>
 <input type="hidden" id="after" name="after" value="{{ events[-1].id if events else 0 }}">
 <script>
   (() => {
+    const thread = document.getElementById("thread");
     const chat = document.getElementById("chat");
-    const nearBottom = () => window.innerHeight + window.scrollY >= document.body.scrollHeight - 160;
+    const log = document.getElementById("timeline");
+    const atBottom = (box) => box.scrollTop + box.clientHeight >= box.scrollHeight - 80;
     const dedupe = (list) => new MutationObserver((changes) => {
       for (const change of changes) for (const node of change.addedNodes) {
         if (node.id && document.querySelectorAll("#" + node.id).length > 1) node.remove();
       }
     }).observe(list, { childList: true });
-    if (chat) dedupe(chat);
-    const log = document.getElementById("timeline");
-    dedupe(log);
-    log.scrollTop = log.scrollHeight;
-    let following = true;
-    log.addEventListener("scroll", () => { following = log.scrollTop + log.clientHeight >= log.scrollHeight - 40; });
-    new MutationObserver(() => { if (following) log.scrollTop = log.scrollHeight; }).observe(log, { childList: true });
-    log.addEventListener("click", (event) => event.target.closest(".event")?.classList.toggle("open"));
-    if (chat) new MutationObserver(() => {
-      document.getElementById("chat-empty")?.remove();
-      if (nearBottom()) window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
-    }).observe(chat, { childList: true });
+    // Both panes stay pinned to their newest line until you scroll up in them.
+    const follow = (box, list) => {
+      let following = true;
+      box.scrollTop = box.scrollHeight;
+      box.addEventListener("scroll", () => { following = atBottom(box); });
+      new MutationObserver(() => { if (following) box.scrollTop = box.scrollHeight; }).observe(list, { childList: true, subtree: true });
+    };
+    dedupe(chat);
+    follow(thread, thread);
+    if (log) {
+      dedupe(log);
+      follow(log.parentElement, log);
+      log.addEventListener("click", (event) => event.target.closest(".event")?.classList.toggle("open"));
+    }
+    new MutationObserver(() => document.getElementById("chat-empty")?.remove()).observe(chat, { childList: true });
     window.foundrySent = (form, event) => {
       if (event.detail.successful) {
         form.reset();
         form.querySelector("textarea").style.height = "auto";
-        window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
+        thread.scrollTop = thread.scrollHeight;
         return;
       }
       let detail = "That didn't send. Try again.";
@@ -72,7 +69,6 @@
       document.getElementById("c-error").textContent = detail;
     };
     if (location.hash === "#composer") document.querySelector("#composer textarea")?.focus();
-    else if (!document.querySelector(".desk")) window.scrollTo(0, document.body.scrollHeight);
     const live = new EventSource("/runs/{{ run.id }}/stream?after=" + document.getElementById("after").value);
     // The stream sends the same out-of-band swaps a send gets back; apply the three kinds it uses.
     const apply = (html) => {

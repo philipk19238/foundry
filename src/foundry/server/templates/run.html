@@ -1,15 +1,17 @@
 {% extends "base.html" %}
 {% block title %}{{ run.kind | capitalize }} {{ source.name }} · Foundry{% endblock %}
+{% block main_class %}ws-main{% endblock %}
 {% block body %}
-<section class="head">
-  <div>
-    <h1>{{ run.kind | capitalize }} · <a href="/sources/{{ source.id }}">{{ source.name }}</a></h1>
-    <span class="mono muted small">{{ run.id }}</span>
-  </div>
-  <div class="facts" id="run-status">{% include "_run_status.html" %}</div>
-</section>
-
-{% include "_built.html" %}
-
-{% include "_chat.html" %}
+<div class="ws" id="ws">
+  <section class="ws-chat">
+    <header class="ws-head">
+      <div class="ws-title"><h1><a href="/sources/{{ source.id }}">{{ source.name }}</a></h1><span class="muted small">an earlier job</span></div>
+    </header>
+    {% include "_chat.html" %}
+  </section>
+  <section class="ws-panel">
+    <nav class="ws-tabs"><a class="on" aria-current="page">Work log</a></nav>
+    <div class="ws-body flush">{% include "_worklog.html" %}</div>
+  </section>
+</div>
 {% endblock %}

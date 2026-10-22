@@ -58,7 +58,7 @@ keys = modal.Secret.from_name(worker.KEYS, environment_name=settings.modal_envir
 # Modal needs the same objects declared on both sides: a container rebuilds this config from its own environment
 # (DEPLOYED_COMMIT, BASE_URL and FILES_BUCKET came with it), so the list never depends on where it runs.
 app = modal.App(worker.APP, image=image, secrets=[keys, deployment_config()])
-workspaces = modal.Volume.from_name("foundry-workspaces", create_if_missing=True)
+workspaces = modal.Volume.from_name(worker.VOLUME, create_if_missing=True)
 
 
 @contextlib.asynccontextmanager

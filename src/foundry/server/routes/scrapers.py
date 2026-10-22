@@ -16,10 +16,10 @@ from foundry.app.browser.models import NewCredential
 from foundry.app.catalog.catalog import Catalog, Opportunities
 from foundry.app.db.models.access import CredentialKind
 from foundry.app.db.models.runs import RunKind
-from foundry.app.help.help import HelpQueue, RunChat
+from foundry.app.help.help import RunChat
 from foundry.app.progress.progress import Tracker
 from foundry.app.repo.client import GitHubPulls
-from foundry.app.runs.runs import Queue, Timeline
+from foundry.app.runs.runs import Queue
 from foundry.server.models import ScraperPage
 from foundry.server.routes.auth import Admin, SignedIn
 
@@ -60,14 +60,18 @@ async def stage(source_id: uuid.UUID, services: SignedIn) -> Response:
 
 @router.get("/{source_id}/chat")
 async def chat(request: Request, source_id: uuid.UUID, services: SignedIn) -> Response:
+    """The work log beside the conversation."""
     templates = await services.aget(Jinja2Templates)
     page = await ScraperPage.from_container(services, source_id, "chat")
-    context = dict(page)
-    if page.progress.agent is not None:
-        timeline, help_queue = await services.aget(Timeline, HelpQueue)
-        context["events"] = await timeline.since(page.progress.agent.id, 0)
-        context["help"] = await help_queue.of_run(page.progress.agent.id)
-    return templates.TemplateResponse(request, "source.html", context)
+    return templates.TemplateResponse(request, "source.html", dict(page))
+
+
+@router.get("/{source_id}/browser")
+async def browser(request: Request, source_id: uuid.UUID, services: SignedIn) -> Response:
+    """The agent's browser, to watch while it works; driving it goes through taking over."""
+    templates = await services.aget(Jinja2Templates)
+    page = await ScraperPage.from_container(services, source_id, "browser")
+    return templates.TemplateResponse(request, "source.html", dict(page))
 
 
 @router.get("/{source_id}/test")

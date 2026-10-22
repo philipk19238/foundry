@@ -141,3 +141,18 @@ class MissingSetting(Error):
 class NoAgent(Error):
     def __init__(self, run_id: uuid.UUID) -> None:
         super().__init__(f"Run {run_id} is a crawl with no agent in it, so nobody would read this.")
+
+
+class CrawlStopped(Error):
+    def __init__(self) -> None:
+        super().__init__("A person restarted this crawl; the next attempt carries on where it got to.")
+
+
+class CrawlStalled(Error):
+    def __init__(self, why: str) -> None:
+        super().__init__(f"The crawl {why}.")
+
+
+class CannotRestart(Error):
+    def __init__(self, run_id: uuid.UUID) -> None:
+        super().__init__(f"Run {run_id} isn't a running or failed scrape, so it can't be restarted.")

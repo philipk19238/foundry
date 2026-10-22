@@ -5,29 +5,42 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Foundry{% endblock %}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Serif:wght@600;700&family=Source+Code+Pro:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/app.css?v={{ version }}">
   <script src="https://unpkg.com/htmx.org@2.0.4"></script>
 </head>
-<body>
+<body class="{{ 'app' if user else 'bare' }}">
   {% if user %}
-  <header class="bar">
-    <a class="brand" href="/"><span class="mark">⌁</span> Foundry</a>
-    <nav>
-      <a href="/">Scrapers</a>
-      <a href="/opportunities">Opportunities</a>
-      <a href="/help">Help queue</a>
-      <a href="/tokens">API tokens</a>
+  <aside class="side">
+    <a class="side-brand" href="/"><span class="side-mark" aria-hidden="true">F</span> Foundry</a>
+    <nav class="side-nav">
+      <a href="/#new"><span class="i" aria-hidden="true">＋</span>New scraper</a>
+      <a href="/" data-exact><span class="i" aria-hidden="true">▦</span>Scrapers</a>
+      <a href="/opportunities"><span class="i" aria-hidden="true">≡</span>Opportunities</a>
+      <a href="/help"><span class="i" aria-hidden="true">✋</span>Help queue</a>
+      <a href="/tokens"><span class="i" aria-hidden="true">⚿</span>API tokens</a>
     </nav>
-    <form method="post" action="/logout" class="who">
-      <span>{{ user.email }} · {{ user.role }}</span>
-      <button class="ghost">Sign out</button>
+    <div class="side-list" hx-get="/sidebar" hx-trigger="load, every 20s" hx-swap="innerHTML"></div>
+    <form method="post" action="/logout" class="side-foot">
+      <span class="side-avatar" aria-hidden="true">{{ user.email[0] | upper }}</span>
+      <span class="side-who">{{ user.email }}<span>{{ user.role }}</span></span>
+      <button class="btn ghost xs" title="Sign out">Sign out</button>
     </form>
-  </header>
+  </aside>
   {% endif %}
-  <main>
+  <main class="{% block main_class %}page{% endblock %}">
     {% if request.query_params.get("error") %}<p class="flash" role="alert">{{ request.query_params.get("error") }}</p>{% endif %}
     {% block body %}{% endblock %}
   </main>
+  <script>
+    // The sidebar marks the page you're on, in its nav and in its list of scrapers (which loads after the page).
+    const mark = () => document.querySelectorAll(".side a[href]").forEach((link) => {
+      const path = new URL(link.href).pathname;
+      const on = link.hasAttribute("data-exact") ? location.pathname === path : path !== "/" && location.pathname.startsWith(path);
+      link.classList.toggle("on", on);
+    });
+    mark();
+    document.addEventListener("htmx:afterSwap", mark);
+  </script>
 </body>
 </html>

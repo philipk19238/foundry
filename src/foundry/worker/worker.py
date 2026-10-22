@@ -4,6 +4,7 @@ import asyncio
 import os
 import sys
 import uuid
+from pathlib import Path
 
 import modal
 import svcs
@@ -15,6 +16,7 @@ from foundry.app.db.models.runs import RunStatus
 from foundry.app.repo.repo import Mirror
 from foundry.app.runs.models import Dispatcher, EventKind
 from foundry.app.runs.runs import Runs, Timeline
+from foundry.app.scrapers.models.crawl import CrawlState
 from foundry.app.settings import Settings, settings
 
 APP = "foundry"
@@ -24,6 +26,7 @@ OUTPUT_TAIL = 2000
 FUNCTIONS = "src/foundry/worker/functions.py"
 KEYS = "foundry"
 DEPLOY_KEYS = "foundry-deploy"
+VOLUME = "foundry-workspaces"
 MODAL_TOKEN = ("MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET")
 SECRETS = (
     "DATABASE_URL", "OPENAI_API_KEY", "KERNEL_API_KEY", "KNOCK_SECRET_KEY", "SERVICE_TOKEN", "CREDENTIALS_KEY",
@@ -58,6 +61,21 @@ class LocalDispatcher:
         async with svcs.Container(self._registry) as services:
             jobs = await services.aget(foundry.Jobs)
             await jobs.carry_out(run_id)
+
+
+class VolumeCrawls:
+    """Live crawls' state on the workspaces volume, committed as they go, so a crawl whose container died carries on
+    in another."""
+
+    def __init__(self, root: Path, volume: modal.Volume) -> None:
+        self._root = root
+        self._volume = volume
+
+    def folder(self, run_id: uuid.UUID) -> Path:
+        return self._root / str(run_id)
+
+    async def keep(self) -> None:
+        await self._volume.commit.aio()
 
 
 class ModalDispatcher:
@@ -143,7 +161,8 @@ async def publish_secrets(settings: Settings) -> None:
 
 
 def register(registry: svcs.Registry) -> None:
-    """The dispatcher this process uses, then the queue and jobs that use it."""
+    """The dispatcher this process uses, then the queue and jobs that use it; on Modal, live crawls keep their state on
+    the workspaces volume."""
     match settings.dispatcher:
         case "local":
             local = LocalDispatcher(registry)
@@ -152,6 +171,8 @@ def register(registry: svcs.Registry) -> None:
             carry_out = modal.Function.from_name(APP, "carry_out", environment_name=settings.modal_environment)
             redeploy = modal.Function.from_name(APP, "redeploy", environment_name=settings.modal_environment)
             registry.register_value(Dispatcher, ModalDispatcher(carry_out, redeploy))
+            volume = modal.Volume.from_name(VOLUME, environment_name=settings.modal_environment)
+            registry.register_value(CrawlState, VolumeCrawls(settings.workspaces_dir / "crawls", volume))
     foundry.register_queue(registry)
     registry.register_factory(Deployer, svcs.aautowire(Deployer))
 

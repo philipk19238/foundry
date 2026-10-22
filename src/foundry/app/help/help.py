@@ -12,7 +12,7 @@ from foundry.app.runs.models import EventKind
 from foundry.app.runs.runs import Pauses, Queue, RunHistory, Timeline
 from foundry.app.settings import settings
 
-WAIT = dt.timedelta(minutes=45)
+WAIT = dt.timedelta(minutes=15)
 POLL = dt.timedelta(seconds=3)
 PAGE = 100
 TAKEOVER = (

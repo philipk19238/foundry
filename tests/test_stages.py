@@ -7,7 +7,7 @@ from pathlib import Path
 from foundry.app.db.models.catalog import SourceStatus
 from foundry.app.db.models.runs import RunKind
 from foundry.app.progress.models import Signals, Stage
-from foundry.app.scrapers.models import Standing
+from foundry.app.scrapers.models.version import Standing
 
 CASES = [
     line.split()

@@ -7,13 +7,13 @@ import uuid
 from collections.abc import Sequence
 
 from pydantic import JsonValue
-from sqlalchemy import and_, bindparam, exists, insert, or_, select, update
+from sqlalchemy import and_, bindparam, exists, func, insert, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from foundry.app.db.models.catalog import Source
 from foundry.app.db.models.help import HelpRequest, HelpStatus
 from foundry.app.db.models.runs import Event, Run, RunKind, RunStatus
-from foundry.app.runs.models import ACTIVE, EventKind
+from foundry.app.runs.models import ACTIVE, EventKind, Revived
 
 _HELD = and_(
     Source.id == bindparam("source"),
@@ -80,13 +80,14 @@ _ACTIVE = (RunStatus.QUEUED, RunStatus.RUNNING, RunStatus.WAITING)
 _LIVE_LEASE = exists().where(
     Source.id == Run.source_id, Source.lease_run_id == Run.id, Source.lease_expires_at > bindparam("now")
 )
+_CRAWLS = (RunKind.REFRESH, RunKind.TRIAL)
 _REAP = (
     update(Run)
     .where(
         Run.status.in_(_ACTIVE),
-        Run.created_at < bindparam("before"),
+        func.coalesce(Run.beat_at, Run.created_at) < bindparam("before"),
         ~_LIVE_LEASE,
-        or_(Run.kind != RunKind.TRIAL, Run.created_at < bindparam("trials_before")),
+        or_(Run.kind.not_in(_CRAWLS), Run.status == RunStatus.QUEUED),
     )
     .values(status=RunStatus.FAILED, summary="lost its worker before finishing", finished_at=bindparam("now"))
     .returning(Run.id)
@@ -131,6 +132,7 @@ _LAST_AGENT = (
     .order_by(Run.status.in_(ACTIVE).desc(), Run.created_at.desc())
     .limit(1)
 )
+_LIVE_VIEW = update(Run).where(Run.id == bindparam("run")).values(live_view_url=bindparam("url"))
 _SET_STATUS = update(Run).where(Run.id == bindparam("run")).values(status=bindparam("state"))
 _ENDED = (RunStatus.SUCCEEDED, RunStatus.FAILED, RunStatus.SKIPPED)
 _REOPEN = (
@@ -139,16 +141,56 @@ _REOPEN = (
     .values(status=RunStatus.QUEUED, summary=None, finished_at=None)
     .returning(Run.id)
 )
-_START = update(Run).where(Run.id == bindparam("run")).values(status=RunStatus.RUNNING, started_at=bindparam("at"))
-_FINISH = (
+_START = (
     update(Run)
     .where(Run.id == bindparam("run"))
+    .values(status=RunStatus.RUNNING, started_at=bindparam("at"), beat_at=bindparam("at"))
+)
+_FINISH = (
+    update(Run)
+    .where(Run.id == bindparam("run"), Run.status.not_in(_ENDED))
     .values(
         status=bindparam("state"),
         summary=bindparam("text"),
         stats=bindparam("numbers"),
         finished_at=bindparam("at"),
     )
+)
+
+
+_BEAT = (
+    update(Run)
+    .where(Run.id == bindparam("run"), Run.status == RunStatus.RUNNING, Run.attempts == bindparam("attempt"))
+    .values(beat_at=bindparam("at"), stats=bindparam("numbers"))
+    .returning(Run.id)
+)
+_RETRY = (
+    update(Run)
+    .where(
+        Run.id == bindparam("run"),
+        Run.kind.in_(_CRAWLS),
+        Run.status.in_((RunStatus.RUNNING, RunStatus.FAILED)),
+        Run.attempts == bindparam("attempt"),
+    )
+    .values(status=RunStatus.QUEUED, attempts=Run.attempts + 1, beat_at=bindparam("at"), summary=None, finished_at=None)
+    .returning(Run.id)
+)
+_STALE = and_(
+    Run.kind.in_(_CRAWLS),
+    Run.status == RunStatus.RUNNING,
+    func.coalesce(Run.beat_at, Run.started_at) < bindparam("before"),
+)
+_REVIVE = (
+    update(Run)
+    .where(_STALE, Run.attempts < bindparam("most"))
+    .values(status=RunStatus.QUEUED, attempts=Run.attempts + 1, beat_at=bindparam("now"))
+    .returning(Run.id)
+)
+_GIVE_UP = (
+    update(Run)
+    .where(_STALE, Run.attempts >= bindparam("most"))
+    .values(status=RunStatus.FAILED, summary="stopped making progress, tried too often", finished_at=bindparam("now"))
+    .returning(Run.id)
 )
 
 
@@ -211,6 +253,10 @@ async def start(session: AsyncSession, run_id: uuid.UUID, at: dt.datetime) -> No
     await session.execute(_START, {"run": run_id, "at": at})
 
 
+async def set_live_view(session: AsyncSession, run_id: uuid.UUID, url: str | None) -> None:
+    await session.execute(_LIVE_VIEW, {"run": run_id, "url": url})
+
+
 async def set_status(session: AsyncSession, run_id: uuid.UUID, status: RunStatus) -> None:
     await session.execute(_SET_STATUS, {"run": run_id, "state": status})
 
@@ -245,12 +291,30 @@ async def said(session: AsyncSession, run_id: uuid.UUID) -> str | None:
     return await session.scalar(_SAID, {"run": run_id})
 
 
-async def reap(
-    session: AsyncSession, at: dt.datetime, before: dt.datetime, trials_before: dt.datetime
-) -> Sequence[uuid.UUID]:
-    """Fails every active run older than ``before`` that holds no live lease: its worker died or restarted. A test
-    crawl holds no lease at all, so it is failed only once it is older than any crawl can run."""
-    return (await session.scalars(_REAP, {"now": at, "before": before, "trials_before": trials_before})).all()
+async def reap(session: AsyncSession, at: dt.datetime, before: dt.datetime) -> Sequence[uuid.UUID]:
+    """Fails every active run older than ``before`` that holds no live lease: its worker died or restarted. A started
+    crawl is left to `revive`, which goes by its beats."""
+    return (await session.scalars(_REAP, {"now": at, "before": before})).all()
+
+
+async def beat(
+    session: AsyncSession, run_id: uuid.UUID, attempt: int, stats: dict[str, JsonValue], at: dt.datetime
+) -> bool:
+    """Records a crawl's progress; False once the attempt is no longer the run's newest, running one."""
+    return await session.scalar(_BEAT, {"run": run_id, "attempt": attempt, "numbers": stats, "at": at}) is not None
+
+
+async def retry(session: AsyncSession, run_id: uuid.UUID, attempt: int, at: dt.datetime) -> bool:
+    """Queues a running or failed crawl's next attempt; False if `attempt` isn't its newest or it can't be retried."""
+    return await session.scalar(_RETRY, {"run": run_id, "attempt": attempt, "at": at}) is not None
+
+
+async def revive(session: AsyncSession, before: dt.datetime, most: int, at: dt.datetime) -> Revived:
+    """Crawls that haven't beaten since ``before``, their worker gone or stuck: queued again while they have
+    attempts left, failed after."""
+    queued = list((await session.scalars(_REVIVE, {"before": before, "most": most, "now": at})).all())
+    failed = list((await session.scalars(_GIVE_UP, {"before": before, "most": most, "now": at})).all())
+    return Revived(queued=queued, failed=failed)
 
 
 async def defer(session: AsyncSession, run_id: uuid.UUID, why: str) -> None:

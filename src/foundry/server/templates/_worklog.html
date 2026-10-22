@@ -1,0 +1,9 @@
+<div class="c-log">
+  {% if run %}
+  <ol class="timeline" id="timeline">
+    {% for event in events %}{% include "_event.html" %}{% endfor %}
+  </ol>
+  {% else %}
+  <p class="c-empty">Every command, edit and tool call the agent makes shows up here.</p>
+  {% endif %}
+</div>

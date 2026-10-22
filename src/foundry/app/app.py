@@ -37,9 +37,10 @@ from foundry.app.pulls.pulls import Imports, Proposals, Reviews
 from foundry.app.repo.client import GitHubPulls
 from foundry.app.repo.repo import Clones, Git, Mirror
 from foundry.app.runs.models import EventKind, RunView
-from foundry.app.runs.runs import Leases, Pauses, Queue, RunFeed, RunHistory, Runs, Timeline
-from foundry.app.scrapers.models import Crawl, CrawlReport, Health, Proposal, RefreshReport, ScraperView
-from foundry.app.scrapers.scrapers import Crawls, Downloads, Healths, ScraperHistory, Versions
+from foundry.app.runs.runs import MOST_ATTEMPTS, Attempts, Leases, Pauses, Queue, RunFeed, RunHistory, Runs, Timeline
+from foundry.app.scrapers.models.crawl import Crawl, CrawlReport, CrawlState, Health, RefreshReport
+from foundry.app.scrapers.models.version import Proposal, ScraperView
+from foundry.app.scrapers.scrapers import CrawlFolders, Crawls, Healths, ScraperHistory, Versions
 from foundry.app.settings import Settings, settings
 
 logger = logging.getLogger(__name__)
@@ -48,43 +49,45 @@ NEXT = {SourceStatus.RELOGIN: RunKind.RELOGIN, SourceStatus.HEALING: RunKind.HEA
 
 
 class Refresher:
-    """One crawl of a portal with its current scraper, from `main` at the commit that merged it: download the
-    attachments of what is new, store it, judge the scraper's health."""
+    """One crawl of a portal with its current scraper, from `main` at the commit that merged it, which downloads the
+    attachments as it goes: store what is new, judge the scraper's health."""
 
     def __init__(
-        self, versions: Versions, mirror: Mirror, accounts: Accounts, crawls: Crawls, downloads: Downloads,
-        catalog: Catalog, healths: Healths,
+        self, versions: Versions, mirror: Mirror, accounts: Accounts, crawls: Crawls, catalog: Catalog,
+        healths: Healths, attempts: Attempts,
     ) -> None:  # fmt: skip
+        self._attempts = attempts
         self._versions = versions
         self._mirror = mirror
         self._accounts = accounts
         self._crawls = crawls
-        self._downloads = downloads
         self._catalog = catalog
         self._healths = healths
 
-    async def refresh(self, lease: Lease, source: SourceView) -> RefreshReport:
+    async def refresh(self, lease: Lease, source: SourceView, run: RunView) -> RefreshReport:
+        watch = self._attempts.watch(run)
         scraper = await self._versions.current(source.id)
         access = await self._accounts.access(source.id)
+        known = await self._catalog.stored(source.id)
         async with self._mirror.tree(scraper.commit) as tree:
-            report = await self._crawls.live(tree, source.id, scraper.site, access, source.previous_valid)
+            report = await self._crawls.live(tree, source.id, scraper.site, access, source.previous_valid, watch, known)
         if report.session is not None and report.session.cookies:
             await self._accounts.save_session(lease, report.session)
         notices = [ScrapedNotice(source_id=source.id, listing=listing) for listing in report.listings]
-        files = {
-            notice.notice_id: await self._downloads.fetch(notice.listing, access.session)
-            for notice in await self._catalog.unseen(notices)
-        }
+        saved = {**known, **report.files}
+        files = {notice.notice_id: notice.stored_files(saved) for notice in await self._catalog.unseen(notices)}
         ingested = await self._catalog.ingest(lease, notices, files)
         health = await self._healths.record(lease, Health(status=source.status, heals=source.heals), report.crawl)
         return RefreshReport(crawl=report.crawl, ingested=ingested, health=health)
 
-    async def trial(self, scraper: ScraperView) -> CrawlReport:
-        """One live crawl with any version, from its own code, storing nothing."""
+    async def trial(self, scraper: ScraperView, run: RunView) -> CrawlReport:
+        """One live crawl with any version, from its own code, storing nothing but the attachments it downloads."""
+        watch = self._attempts.watch(run)
         await self._mirror.fetch()
         access = await self._accounts.access(scraper.source_id)
+        known = await self._catalog.stored(scraper.source_id)
         async with self._mirror.tree(scraper.ref) as tree:
-            return await self._crawls.live(tree, scraper.source_id, scraper.site, access, 0)
+            return await self._crawls.live(tree, scraper.source_id, scraper.site, access, 0, watch, known)
 
 
 class Jobs:
@@ -158,6 +161,14 @@ class Jobs:
             else:
                 await self._runs.finish(run.id, RunStatus.SKIPPED, str(error))
             return
+        except exceptions.CrawlStopped:
+            if (await self._history.run(run.id)).status == RunStatus.QUEUED:
+                await self._queue.dispatch(run.id)
+            return
+        except exceptions.CrawlStalled as error:
+            if run.attempts + 1 >= MOST_ATTEMPTS or not await self._queue.retry(run):
+                await self._runs.finish(run.id, RunStatus.FAILED, str(error))
+            return
         except exceptions.Error as error:
             await self._runs.finish(run.id, RunStatus.FAILED, str(error))
             return
@@ -192,7 +203,8 @@ class Jobs:
                 assert_never(run.kind)
 
     async def _refresh(self, run: RunView, lease: Lease) -> RunKind | None:
-        refreshed = await self._refresher.refresh(lease, await self._catalog.source(run.source_id))
+        source = await self._catalog.source(run.source_id)
+        refreshed = await self._refresher.refresh(lease, source, run)
         stats: dict[str, JsonValue] = {
             "crawl": refreshed.crawl.model_dump(mode="json"),
             **refreshed.ingested.model_dump(),
@@ -234,7 +246,7 @@ class Jobs:
         run to read; nothing is stored in the catalog and the source's health is untouched, so a trial needs no lease
         and runs while an agent works on the source."""
         scraper = await self._scrapers.newest(run.source_id)
-        report = await self._refresher.trial(scraper)
+        report = await self._refresher.trial(scraper, run)
         stats: dict[str, JsonValue] = {
             "scraper": scraper.model_dump(mode="json"),
             "crawl": report.crawl.model_dump(mode="json"),
@@ -303,15 +315,17 @@ class Schedule:
     async def refresh_ready(self) -> int:
         """Fails runs whose worker is gone, then queues a refresh of every source whose scraper is healthy; the
         schedule calls this."""
-        await self._runs.reap()
+        await self._queue.revive()
         ready = [source for source in await self._catalog.sources() if source.status == SourceStatus.READY]
         for source in ready:
             await self._queue.request(source.id, RunKind.REFRESH, None)
         return len(ready)
 
     async def review_pending(self) -> int:
-        """Wakes agent jobs left deferred on a source nothing holds, then queues a review of every source whose pull
-        request was merged or closed, on GitHub or here; the schedule calls this every few minutes."""
+        """Carries on crawls that stopped beating, wakes agent jobs left deferred on a source nothing holds, then
+        queues a review of every source whose pull request was merged or closed, on GitHub or here; the schedule
+        calls this every few minutes."""
+        await self._queue.revive()
         for source_id in await self._leases.stranded():
             await self._queue.wake(source_id)
         decided = 0
@@ -346,11 +360,12 @@ def register(registry: svcs.Registry) -> None:
     git = Git(settings)
     mirror = Mirror(git, settings)
     registry.register_value(Mirror, mirror)
+    registry.register_value(CrawlState, CrawlFolders(settings.workspaces_dir / "crawls"))
     registry.register_value(Clones, Clones(git, mirror, settings))
     services = (
-        Users, Logins, Catalog, Timeline, Leases, Runs, Pauses, RunHistory, RunFeed, HelpQueue, HelpDesk, Browsers,
-        Crawls, Credentials, Accounts, Workspaces, Narrator, Inbox, Codex, Versions, ScraperHistory, Healths,
-        Downloads, GitHubPulls, Proposals, Agent, Refresher, Opportunities, Tracker, Imports, Learnings,
+        Users, Logins, Catalog, Timeline, Leases, Runs, Attempts, Pauses, RunHistory, RunFeed, HelpQueue, HelpDesk,
+        Browsers, Crawls, Credentials, Accounts, Workspaces, Narrator, Inbox, Codex, Versions, ScraperHistory, Healths,
+        GitHubPulls, Proposals, Agent, Refresher, Opportunities, Tracker, Imports, Learnings,
     )  # fmt: skip
     for service in services:
         registry.register_factory(service, svcs.aautowire(service))

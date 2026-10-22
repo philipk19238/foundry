@@ -6,6 +6,7 @@ from foundry.app import exceptions
 from foundry.app.catalog import models, store
 from foundry.app.core.models import Lease
 from foundry.app.db.db import Sessionmaker, now
+from foundry.core.models import SavedFile
 
 NOTICE_PAGE = 200
 OPPORTUNITY_PAGE = 50
@@ -44,6 +45,12 @@ class Catalog:
         async with self._sessionmaker() as session:
             known = await store.known(session, notices)
         return [notice for notice in notices if notice.notice_id not in known.notices]
+
+    async def stored(self, source_id: uuid.UUID) -> dict[str, SavedFile]:
+        """The attachments of a source already in the bucket, by URL, so a crawl doesn't download them again."""
+        async with self._sessionmaker() as session:
+            files = await store.stored(session, source_id)
+        return {file.url: SavedFile.model_validate(file, from_attributes=True) for file in files}
 
     async def ingest(
         self,

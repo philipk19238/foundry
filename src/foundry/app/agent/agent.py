@@ -33,7 +33,7 @@ from foundry.app.pulls.pulls import Proposals
 from foundry.app.repo.models import BRANCHES
 from foundry.app.repo.repo import CHECKOUT, Clones
 from foundry.app.runs.models import EventKind
-from foundry.app.runs.runs import Timeline
+from foundry.app.runs.runs import Runs, Timeline
 from foundry.app.scrapers.scrapers import KIT
 from foundry.app.settings import Settings
 
@@ -318,8 +318,9 @@ class Agent:
 
     def __init__(
         self, browsers: Browsers, accounts: Accounts, workspaces: Workspaces, codex: Codex, proposals: Proposals,
-        timeline: Timeline, settings: Settings,
+        timeline: Timeline, runs: Runs, settings: Settings,
     ) -> None:  # fmt: skip
+        self._runs = runs
         self._browsers = browsers
         self._accounts = accounts
         self._workspaces = workspaces
@@ -343,6 +344,7 @@ class Agent:
         workspace, start = await self._workspaces.prepare(lease)
         async with self._browsers.opened(lease.source_id) as browser:
             await self._timeline.log(lease.run_id, EventKind.STATUS, "Opened a Kernel browser.")
+            await self._runs.watching(lease.run_id, browser.live_view_url)
             context = handoff.ToolsContext(
                 run_id=lease.run_id,
                 source_id=lease.source_id,
@@ -350,8 +352,11 @@ class Agent:
                 live_view_url=browser.live_view_url,
                 workspace=workspace.folder,
             )
-            await self._codex.work(browser, context, workspace, self.prompt(task, start, browser))
-            await self._accounts.save_session(lease, await self._browsers.session(browser, {}))
+            try:
+                await self._codex.work(browser, context, workspace, self.prompt(task, start, browser))
+                await self._accounts.save_session(lease, await self._browsers.session(browser, {}))
+            finally:
+                await self._runs.watching(lease.run_id, None)
         commit = workspace.restarts.asked()
         if commit is not None:
             return outcomes.Restart(commit=commit)
