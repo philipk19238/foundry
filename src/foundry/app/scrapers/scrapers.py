@@ -111,8 +111,9 @@ class Crawls:
     async def live(
         self, tree: Path, source_id: uuid.UUID, key: str, access: Access, previous_valid: int
     ) -> models.CrawlReport:
-        """A crawl of the live portal: plain first, and if the portal turns it away with no session to blame, the
-        same crawl again from a stealth browser on a residential address, which gets past most bot checks."""
+        """A crawl of the live portal: plain first, and if the portal turns it away, the same crawl again from a
+        stealth browser on a residential address, which gets past most bot checks. Only a refusal the browser gets
+        too, with a saved session sent, asks for a new sign-in."""
         site = self.site(tree, key)
         report = await self._run(tree, site, access, None, None, previous_valid)
         if not report.crawl.blocked:
