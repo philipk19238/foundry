@@ -22,7 +22,6 @@ from foundry.app.browser.browser import Accounts, Browsers, Credentials
 from foundry.app.browser.client import KernelBrowserApi
 from foundry.app.browser.models import BrowserApi
 from foundry.app.catalog.catalog import Catalog, Opportunities
-from foundry.app.catalog.models import ScrapedNotice, SourceView
 from foundry.app.core.models import Lease
 from foundry.app.db import db
 from foundry.app.db.models.catalog import ScraperState, SourceStatus
@@ -35,6 +34,8 @@ from foundry.app.help.models import Notifier
 from foundry.app.learnings.learnings import Learnings
 from foundry.app.progress.progress import Tracker
 from foundry.app.pulls.pulls import Imports, Proposals, Reviews
+from foundry.app.refresher.refresher import Refresher
+from foundry.app.repairs.repairs import Repairs
 from foundry.app.repo.client import GitHubPulls
 from foundry.app.repo.repo import Clones, Git, Mirror
 from foundry.app.runs.changes import RunChanges
@@ -50,8 +51,8 @@ from foundry.app.runs.runs import (
     Runs,
     Timeline,
 )
-from foundry.app.scrapers.models.crawl import Crawl, CrawlReport, CrawlState, Health, RefreshReport
-from foundry.app.scrapers.models.version import Proposal, ScraperView
+from foundry.app.scrapers.models.crawl import Crawl, CrawlReport, CrawlState
+from foundry.app.scrapers.models.version import Proposal
 from foundry.app.scrapers.scrapers import CrawlFolders, Crawls, Healths, ScraperHistory, Versions
 from foundry.app.settings import Settings, settings
 
@@ -60,52 +61,10 @@ logger = logging.getLogger(__name__)
 NEXT = {SourceStatus.RELOGIN: RunKind.RELOGIN, SourceStatus.HEALING: RunKind.HEAL}
 
 
-class Refresher:
-    """One crawl of a portal with its current scraper, from `main` at the commit that merged it, which downloads the
-    attachments as it goes: store what is new, judge the scraper's health."""
-
-    def __init__(
-        self, versions: Versions, mirror: Mirror, accounts: Accounts, crawls: Crawls, catalog: Catalog,
-        healths: Healths, attempts: Attempts,
-    ) -> None:  # fmt: skip
-        self._attempts = attempts
-        self._versions = versions
-        self._mirror = mirror
-        self._accounts = accounts
-        self._crawls = crawls
-        self._catalog = catalog
-        self._healths = healths
-
-    async def refresh(self, lease: Lease, source: SourceView, run: RunView) -> RefreshReport:
-        watch = self._attempts.watch(run)
-        scraper = await self._versions.current(source.id)
-        access = await self._accounts.access(source.id)
-        known = await self._catalog.stored(source.id)
-        async with self._mirror.tree(scraper.commit) as tree:
-            report = await self._crawls.live(tree, source.id, scraper.site, access, source.previous_valid, watch, known)
-        if report.session is not None and report.session.cookies:
-            await self._accounts.save_session(lease, report.session)
-        notices = [ScrapedNotice(source_id=source.id, listing=listing) for listing in report.listings]
-        saved = {**known, **report.files}
-        files = {notice.notice_id: notice.stored_files(saved) for notice in await self._catalog.unseen(notices)}
-        ingested = await self._catalog.ingest(lease, notices, files)
-        health = await self._healths.record(lease, Health(status=source.status, heals=source.heals), report.crawl)
-        return RefreshReport(crawl=report.crawl, ingested=ingested, health=health, bronze=report.bronze)
-
-    async def trial(self, scraper: ScraperView, run: RunView) -> CrawlReport:
-        """One live crawl with any version, from its own code, storing nothing but the attachments it downloads."""
-        watch = self._attempts.watch(run)
-        await self._mirror.fetch()
-        access = await self._accounts.access(scraper.source_id)
-        known = await self._catalog.stored(scraper.source_id)
-        async with self._mirror.tree(scraper.ref) as tree:
-            return await self._crawls.live(tree, scraper.source_id, scraper.site, access, 0, watch, known)
-
-
 class Jobs:
     """Carries out a queued run under its source's lease, records how it ended, and queues what comes next: a heal
     or relogin after a broken crawl, a refresh after a merged scraper or a new session, the same run again after a
-    restart."""
+    restart. A test scrape that went wrong sends an agent to fix it (`Repairs`)."""
 
     def __init__(
         self,
@@ -123,6 +82,7 @@ class Jobs:
         pauses: Pauses,
         scrapers: ScraperHistory,
         proposals: Proposals,
+        repairs: Repairs,
     ) -> None:
         self._runs = runs
         self._history = history
@@ -138,6 +98,7 @@ class Jobs:
         self._pauses = pauses
         self._scrapers = scrapers
         self._proposals = proposals
+        self._repairs = repairs
 
     async def carry_out(self, run_id: uuid.UUID) -> None:
         """Carries a run out. An agent job that finds its source held waits for it instead of being skipped; whenever
@@ -221,7 +182,12 @@ class Jobs:
 
     async def _refresh(self, run: RunView, lease: Lease) -> RunKind | None:
         source = await self._catalog.source(run.source_id)
-        refreshed = await self._refresher.refresh(lease, source, run)
+        try:
+            refreshed = await self._refresher.refresh(lease, source, run)
+        except (exceptions.CrawlStalled, exceptions.SiteMissing) as error:
+            if not self._last_try(run, error):
+                raise
+            refreshed = await self._refresher.broken(lease, source, str(error))
         stats: dict[str, JsonValue] = {
             "crawl": refreshed.crawl.model_dump(mode="json"),
             **refreshed.ingested.model_dump(),
@@ -267,7 +233,12 @@ class Jobs:
         run to read; nothing is stored in the catalog and the source's health is untouched, so a trial needs no lease
         and runs while an agent works on the source."""
         scraper = await self._scrapers.newest(run.source_id)
-        report = await self._refresher.trial(scraper, run)
+        try:
+            report = await self._refresher.trial(scraper, run)
+        except (exceptions.CrawlStalled, exceptions.SiteMissing) as error:
+            if not self._last_try(run, error):
+                raise
+            report = CrawlReport(listings=(), crawl=Crawl.broken(str(error), 0))
         stats: dict[str, JsonValue] = {
             "scraper": scraper.model_dump(mode="json"),
             "crawl": report.crawl.model_dump(mode="json"),
@@ -282,7 +253,14 @@ class Jobs:
                 await self._proposals.report_test(scraper, run.id, report)
             except exceptions.Error as error:
                 logger.warning("couldn't comment test %s on pull %s: %s", run.id, scraper.pull, error)
+        await self._repairs.after_trial(run, scraper, crawl)
         return None
+
+    @staticmethod
+    def _last_try(run: RunView, error: Exception) -> bool:
+        """Whether a crawl that failed this way is the scraper's to fix now: a spider that won't load always is; a
+        stalled crawl only on its last attempt, as earlier ones carry on in the next (`_carry`)."""
+        return not isinstance(error, exceptions.CrawlStalled) or run.attempts + 1 >= MOST_ATTEMPTS
 
     async def _review(self, run: RunView, lease: Lease) -> RunKind | None:
         """Registers a merged scraper and refreshes from it, or hands a closed one to a person."""
@@ -311,12 +289,15 @@ class Jobs:
         return RunKind.REFRESH
 
     async def _heal_task(self, run: RunView) -> tasks.Heal:
-        """What the agent is told about the breakage: the last refresh's crawl."""
+        """What the agent is told about the breakage: the newest crawl of the live version, a refresh's or a test's."""
         source = await self._catalog.source(run.source_id)
-        last = await self._history.last(source.id, RunKind.REFRESH)
-        if last is None or last.stats is None:
+        crawls = [await self._history.last(source.id, kind) for kind in (RunKind.REFRESH, RunKind.TRIAL)]
+        finished = [last for last in crawls if last is not None and last.stats and "crawl" in last.stats]
+        if not finished:
             raise exceptions.NoScraper(source.id)
-        crawl = Crawl.model_validate(last.stats["crawl"])
+        newest = max(finished, key=lambda last: last.finished_at or last.created_at)
+        assert newest.stats is not None
+        crawl = Crawl.model_validate(newest.stats["crawl"])
         return tasks.Heal(url=source.url, scraper=await self._versions.current(source.id), crawl=crawl)
 
 
@@ -388,7 +369,7 @@ def register(registry: svcs.Registry) -> None:
         Users, Logins, Catalog, Timeline, Leases, Runs, Attempts, Pauses, RunHistory, RunChanges, RunFeed, HelpQueue,
         HelpDesk, Browsers, Crawls, Credentials, Accounts, Workspaces, Narrator, Inbox, Codex, Versions, ScraperHistory,
         Healths, GitHubPulls, Proposals, Agent, Refresher, Opportunities, Tracker, Imports, Learnings, Bronze,
-        Recordings,
+        Recordings, Repairs,
     )  # fmt: skip
     for service in services:
         registry.register_factory(service, svcs.aautowire(service))
