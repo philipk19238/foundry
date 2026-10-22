@@ -3,6 +3,7 @@ import contextlib
 import json
 import logging
 import os
+import shutil
 import sys
 import uuid
 from pathlib import Path
@@ -37,6 +38,7 @@ from foundry.app.settings import Settings
 logger = logging.getLogger(__name__)
 
 KERNEL_MCP = "https://mcp.onkernel.com/mcp"
+SKILLS = Path(__file__).parent / "skills"
 TOOL_SECONDS = 3000
 INBOX_SECONDS = 3
 MAX_RESTARTS = 3
@@ -142,6 +144,7 @@ class Workspace:
         self.folder = folder
         self.checkout = folder / CHECKOUT
         self.home = folder / ".codex"
+        self.skills = self.home / "skills"
         self.submissions = Submissions(folder)
         self.change_pulls = ChangePulls(folder)
         self.restarts = Restarts(folder)
@@ -167,7 +170,8 @@ class Workspace:
 
 
 class Workspaces:
-    """Each run's workspace, cloned on its own branch the first time and found again when the run resumes."""
+    """Each run's workspace, cloned on its own branch the first time and found again when the run resumes. Every
+    start installs the skills this deploy ships into Codex's home, so a resumed run gets the current ones."""
 
     def __init__(self, settings: Settings, clones: Clones) -> None:
         self._root = settings.workspaces_dir.resolve()
@@ -181,6 +185,8 @@ class Workspaces:
         start = handoff.Start.FRESH if workspace.thread() is None else handoff.Start.REOPENED
         workspace.folder.mkdir(parents=True, exist_ok=True)
         workspace.home.mkdir(exist_ok=True)
+        shutil.rmtree(workspace.skills, ignore_errors=True)
+        shutil.copytree(SKILLS, workspace.skills)
         await self._clones.clone(workspace.folder, workspace.branch)
         if workspace.restarts.asked() is not None:
             await self._clones.onto_main(workspace.checkout)
@@ -217,6 +223,15 @@ class Codex:
         self._narrator = narrator
         self._inbox = inbox
 
+    def _shell(self, browser: Browser, workspace: Workspace) -> str:
+        """What the agent's shell commands and its skills find in their environment, as a TOML inline table."""
+        values = {
+            "FOUNDRY_PYTHON": sys.executable,
+            "FOUNDRY_BROWSER": browser.cdp_url,
+            "FOUNDRY_SKILLS": str(workspace.skills),
+        }
+        return "{" + ", ".join(f"{key}={json.dumps(value)}" for key, value in values.items()) + "}"
+
     async def work(self, browser: Browser, context: handoff.ToolsContext, workspace: Workspace, prompt: str) -> None:
         instructions = (
             (Path(__file__).parent / "prompts" / "agent.md")
@@ -237,6 +252,7 @@ class Codex:
             'mcp_servers.foundry.default_tools_approval_mode="approve"',
             "sandbox_workspace_write.network_access=true",
             'shell_environment_policy.inherit="core"',
+            f"shell_environment_policy.set={self._shell(browser, workspace)}",
         )
         environment = {
             **os.environ,

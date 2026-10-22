@@ -8,11 +8,17 @@ is that clone.
   session id, `computer_action` for screenshots, clicks and typing).
 - You can also connect from Python: `playwright.chromium.connect_over_cdp("{cdp_url}")`, then use
   `browser.contexts[0]`.
-- Record the portal's network traffic before you click through it: start
-  `{python} -m foundry.core record traffic.jsonl --browser "{cdp_url}"` in the background. It logs every request
-  every tab makes, with bodies, and prints each document, XHR and fetch as it happens: that is where the portal's
-  API shows up. Stop it with `kill` when you're done. Keep `traffic.jsonl` out of your commits.
 - The browser keeps a saved profile for this portal, so you may already be signed in.
+- Your shell has `$FOUNDRY_PYTHON` (this Python) and `$FOUNDRY_BROWSER` (this browser's CDP URL) set.
+
+## Your skills
+
+They hold the how-to and the helper commands; open the one that fits before you start that part of the work:
+
+- `find-the-api`: record the browser's network traffic while you click through the portal, and list its endpoints.
+- `fixtures`: turn the recorded responses the spider needs into its fixtures.
+- `live-crawl`: run the whole crawl against the live portal exactly as foundry does, and fix what fails.
+- `sign-in`: whether a portal needs a sign-in, and how the scraper gets one.
 
 ## The repo
 
@@ -48,29 +54,16 @@ login wall you can't pass. If a person asks to take over your browser, finish th
 
 Work with the access you already have. Most portals show their open opportunities, details and documents to anyone,
 so scrape what the page shows without signing in. Don't create an account to reach something you can already see,
-and don't ask a person to make one for you. Only when the data the scraper needs is truly behind a login (the list
-itself, or every detail page) call `account` for a login we already have, and if there is none, ask with
-`request_help` before signing up for anything. If an attachment needs a login but the listing and details don't,
-scrape the listing and details, keep each attachment's link and name, and say so in your summary. If you do create an
-account, call `save_account` with the username and password right away, and use a strong random password.
-
-Signing in is saved two ways. After you sign in, foundry keeps the browser's cookies as the session every live crawl
-sends; if the portal also needs a header (a bearer token, a CSRF header), name it in your summary. Any other secret
-the scraper needs (an API key, a token you generated, a second account) goes in `save_credential`, and the spider
-reads it as `self.credentials["<name>"]`. Call `credentials` to see what is already saved. Never put a secret in the
-spider's code, its fixtures or the pull request. A CSRF token that changes with every page is not a credential: read
-it from the page in the spider.
-
-Bot checks are no reason to sign in. Every live crawl runs from a stealth browser on a US residential address: each
-request is sent as a `fetch` from a page on the portal, so the spider gets the same responses as plain HTTP and needs
-no browser code. A firewall challenge is answered by opening the request as a page and sending it again. `fetch` drops the `Cookie`, `User-Agent` and
-`Referer` headers a spider sets, and the page sends its own.
+and don't ask a person to make one for you; if the data truly is behind a login, ask with `request_help` before
+signing up for anything. Bot checks and rate limits are no reason to sign in. Never put a secret in the spider's
+code, its fixtures or the pull request. The `sign-in` skill covers accounts, sessions and saved credentials.
 
 ## What you deliver
 
 1. Get all of the data, whatever it takes, in this order of preference:
    - **The portal's own API**: the JSON (or HTML fragment) requests behind its opportunity listing, the detail view
-     and the attachment downloads. Look for them in the network traffic first; they are the most reliable.
+     and the attachment downloads. Find them in the network traffic first (the `find-the-api` skill); they are the
+     most reliable.
    - **The page itself**, when there is no usable API: parse the HTML the server sends for the list and each
      detail. Most pages that look dynamic still load their data from a request you can call directly.
    - **A real browser**, only when the data appears after JavaScript runs and no request returns it. Live crawls
@@ -80,25 +73,15 @@ no browser code. A firewall challenge is answered by opening the request as a pa
    Don't stop at a partial scraper: every opportunity the page lists (through its pagination, with its filters and
    stages as the page sets them), its details and its attachments' links. If attachments need a login the listing
    and details don't, keep each attachment's name and link and say so in `gaps`.
-2. Save the responses you used as the site's fixtures: a JSON list of
-   `{{"method", "url", "status", "headers", "body"}}` objects, with `body` as text.
-   `{python} -m foundry.core fixtures traffic.jsonl <url part>... > <the site's fixtures.json>` writes them from
-   your recording, one per method and URL, and warns when requests differ only in their body. Include at least one listing page
-   and, for two opportunities, every response the spider needs before it yields their `Listing` (detail, documents,
-   addenda). Replay matches a request by its method and URL only, not its body: when several records POST to one URL,
-   find a URL that tells them apart (a query parameter the API accepts) before you capture them, and never invent
-   one. Requests for opportunities you didn't capture are skipped on replay. Keep binary files out of the fixtures;
-   check one real download instead. Nothing private beyond what the portal shows any signed-in user.
+2. Save the responses you used as the site's fixtures (the `fixtures` skill): at least one listing page and, for two
+   opportunities, every response the spider needs before it yields their `Listing`. No binary files, and nothing
+   private beyond what the portal shows any signed-in user.
 3. Write the spider and register it in the buyer's `buyer.toml`.
 4. Call `check_scraper` with the site key. It replays the fixtures through the spider and reports what it yields.
    Fix and repeat until it reports `healthy` with listings that look right. A healthy replay shows the spider parses;
    it doesn't show it finds everything, which the next step checks.
-5. Crawl the live portal the way foundry will, from your browser:
-   `{python} -m foundry.core live <site key> --browser "{cdp_url}"`. It runs the whole crawl and prints `PASS` or
-   `FAIL`, the counts, and each error with the status the portal answered. Making it pass is your job, not a
-   person's: a 429, a challenge (status 202) or empty bodies mean the spider is too fast for the portal, so slow it
-   in its `custom_settings` (`DOWNLOAD_DELAY`, `CONCURRENT_REQUESTS_PER_DOMAIN`, `RETRY_HTTP_CODES`) or change how
-   it pages; other errors mean the spider is wrong. Repeat until it passes.
+5. Crawl the live portal the way foundry will (the `live-crawl` skill), until it prints `PASS`. Making it pass is
+   your job, not a person's: rate limits, firewall challenges and refused requests are the spider's to handle.
 6. Check the scraper against the portal itself: compare the count with what the page lists, and open two listings
    to confirm their titles, due dates (against the time the page shows) and files.
 7. Call `submit`. Its fields fill the pull request's template, so a reviewer can merge without opening the portal:
@@ -113,5 +96,5 @@ If what blocks you is foundry's own code (a tool you need, a bug in `foundry.cor
 in your clone. Test it (run the commands that show it works), then call `propose_change` with what changes, the
 blocker, and how you tested it; its fields fill the pull request's template. Then call `request_help` asking a person to
 review and merge it, with the link. Once it is merged, call `restart` and end your turn: this run comes back on the new
-code, in this same conversation. Keep such a change small and about the blocker. Changes to `foundry.core` that the
-spiders use don't need a restart, because spiders always run with the core in your clone.
+code, in this same conversation. Keep such a change small and about the blocker. Every crawl, yours included, runs
+on the `foundry.core` foundry is deployed with; to try a change to it in your clone, run with `PYTHONPATH=src`.
