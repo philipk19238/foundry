@@ -22,6 +22,7 @@ SESSION = Session(
         Cookie(name="seen", value="1", domain="portal.test"),
     ),
     headers={"X-Auth-Token": SESSION_TOKEN},
+    local_storage={"https://portal.test": {"lastPage": "https://portal.test/bids", "path": "/bids/open-solicitations"}},
     captured_at=dt.datetime(2026, 10, 22, tzinfo=dt.UTC),
 )
 
@@ -58,6 +59,7 @@ def test_no_secret_reaches_the_entry_or_the_body(tmp_path: Path) -> None:
     for secret in (API_KEY, SESSION_TOKEN, COOKIE, "Bearer x"):
         assert not any(secret in text for text in written), secret
     entry = HarEntry.model_validate_json((tmp_path / "entries.jsonl").read_text())
+    assert entry.request.url.startswith("https://portal.test/bids?")  # a remembered page is no secret
     assert entry.response.content.text == f"<p>token {HIDDEN}, seen 1</p>"
     assert (tmp_path / entry.response.content.sha256).read_text() == entry.response.content.text
     assert {pair.name.lower() for pair in entry.request.headers} == {"x-auth-token"}

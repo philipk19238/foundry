@@ -23,13 +23,15 @@ from foundry.core.spider import BRONZE, FILE
 HIDDEN = "[secret]"
 SHORTEST_SECRET = 4
 SHORTEST_SESSION_VALUE = 8
+URLS = ("http://", "https://", "/")
 
 
 class Secrets:
     """What signs in to a portal, to replace wherever it shows: its saved credentials and password at any length from
     SHORTEST_SECRET, and the session's cookies, headers and stored values (where tokens live) from
-    SHORTEST_SESSION_VALUE, so a short cookie like `1` or `true` doesn't blank out every body. Longest first, so a
-    secret that holds another is replaced whole."""
+    SHORTEST_SESSION_VALUE, so a short cookie like `1` or `true` doesn't blank out every body, and none that is a URL
+    or a path (a page a portal remembers), which would hide the requests themselves. Longest first, so a secret that
+    holds another is replaced whole."""
 
     def __init__(self, named: Iterable[str], session: Session | None) -> None:
         found = {value for value in named if len(value) >= SHORTEST_SECRET}
@@ -37,7 +39,7 @@ class Secrets:
             values = [cookie.value for cookie in session.cookies] + list(session.headers.values())
             for stored in (*session.local_storage.values(), *session.session_storage.values()):
                 values += stored.values()
-            found |= {value for value in values if len(value) >= SHORTEST_SESSION_VALUE}
+            found |= {value for value in values if len(value) >= SHORTEST_SESSION_VALUE and not value.startswith(URLS)}
         self._values = sorted(found, key=len, reverse=True)
 
     def hide(self, text: str) -> str:

@@ -28,7 +28,7 @@ class Repairs:
         self._base_url = settings.base_url
 
     async def after_trial(self, run: RunView, scraper: ScraperView, crawl: Crawl) -> None:
-        if crawl.verdict == Verdict.HEALTHY:
+        if not self.went_wrong(crawl):
             return
         failed = await self.failed_in_a_row(run.source_id)
         if failed > MAX_HEALS:
@@ -50,10 +50,16 @@ class Repairs:
             found = TrialView.of(trial) if trial.finished_at is not None else None
             if found is None:
                 continue
-            if found.crawl.verdict == Verdict.HEALTHY:
+            if not self.went_wrong(found.crawl):
                 break
             failed += 1
         return failed
+
+    @staticmethod
+    def went_wrong(crawl: Crawl) -> bool:
+        """A test went wrong when it wasn't healthy, or found nothing: a test has no earlier count to fall from, so
+        an empty one reads as healthy to the verdict."""
+        return crawl.verdict != Verdict.HEALTHY or crawl.valid == 0
 
     async def _tell(self, scraper: ScraperView, run: RunView, crawl: Crawl, failed: int) -> None:
         """Writes to the agent run that built the version, as a person would, which reaches it mid-task or reopens

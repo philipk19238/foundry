@@ -102,6 +102,12 @@ def test_a_healthy_test_sends_nobody() -> None:
     assert (timeline.written, queue.reopened, queue.requested) == ([], [], [])
 
 
+def test_a_test_that_found_nothing_went_wrong_though_its_verdict_reads_healthy() -> None:
+    empty = Crawl(auth_failed=False, crashed=False, invalid=0, valid=0, previous_valid=0)
+    timeline, queue = repair([run(RunKind.TRIAL, RunStatus.SUCCEEDED, 0, empty)], ScraperState.PROPOSED)
+    assert len(timeline.written) == 1 and queue.reopened == [BUILDER]
+
+
 def test_a_failed_test_of_a_version_in_review_tells_its_builder_and_reopens_it() -> None:
     timeline, queue = repair(failed(1) + [run(RunKind.TRIAL, RunStatus.SUCCEEDED, 9, HEALTHY)], ScraperState.PROPOSED)
     ((to, kind, author, text),) = timeline.written
