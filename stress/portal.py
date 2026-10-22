@@ -11,6 +11,7 @@ import logging
 import random
 import socket
 import time
+import uuid
 from collections import Counter
 from collections.abc import Awaitable, Callable
 from types import TracebackType
@@ -21,6 +22,7 @@ from stress.models import Knobs, Served
 
 Handler = Callable[[web.Request], Awaitable[web.StreamResponse]]
 HOME = "<!doctype html><title>Stress Test Purchasing</title><h1>Open bids</h1>"
+LOGIN = "<!doctype html><title>Sign in</title><form method=post><input name=user></form>"
 VIEWER = "<!doctype html><title>Document viewer</title><iframe src='/viewer/frame'></iframe>"
 SECRET = b"stress-portal-local-only"
 
@@ -123,6 +125,35 @@ class Faults:
         return response
 
 
+class Sessions:
+    """The portal's guest sessions: its home page starts one (a `sid` cookie), and every `sessions_last` API requests
+    it forgets them all, as a portal whose sessions time out does. A request on a forgotten one is sent to sign in."""
+
+    def __init__(self, knobs: Knobs, ledger: Ledger) -> None:
+        self._last = knobs.sessions_last
+        self._ledger = ledger
+        self._live: set[str] = set()
+        self._asked = 0
+
+    @web.middleware
+    async def middleware(self, request: web.Request, handler: Handler) -> web.StreamResponse:
+        if not self._last or request.path == "/login":
+            return await handler(request)
+        if request.path == "/":
+            response = await handler(request)
+            sid = uuid.uuid4().hex
+            self._live.add(sid)
+            response.set_cookie("sid", sid)
+            return response
+        self._asked += 1
+        if self._asked % self._last == 0:
+            self._live.clear()
+        if request.cookies.get("sid") not in self._live:
+            self._ledger.record("detail" if request.match_info.get("bid") else "page", "signed out")
+            raise web.HTTPFound("/login")
+        return await handler(request)
+
+
 class Bids:
     """The portal's content, made up from the knobs and the same on every request: bid `n` is `BID-0000n`, with
     `files_per_listing` documents, each a distinct run of bytes."""
@@ -134,6 +165,9 @@ class Bids:
 
     async def home(self, request: web.Request) -> web.Response:
         return web.Response(text=HOME, content_type="text/html")
+
+    async def login(self, request: web.Request) -> web.Response:
+        return web.Response(text=LOGIN, content_type="text/html")
 
     async def page(self, request: web.Request) -> web.Response:
         knobs = self._knobs
@@ -224,8 +258,12 @@ class Portal:
         logging.getLogger("aiohttp").setLevel(logging.CRITICAL)
         signer = Signer()
         bids = Bids(self._knobs, signer, self.files_url)
-        api = web.Application(middlewares=[Faults(self._knobs, self._ledger).middleware])
-        api.add_routes([web.get("/", bids.home), web.get("/api/bids", bids.page), web.get("/api/bids/{bid}", bids.detail)])
+        sessions = Sessions(self._knobs, self._ledger)
+        api = web.Application(middlewares=[sessions.middleware, Faults(self._knobs, self._ledger).middleware])
+        api.add_routes([
+            web.get("/", bids.home), web.get("/login", bids.login), web.get("/api/bids", bids.page),
+            web.get("/api/bids/{bid}", bids.detail),
+        ])  # fmt: skip
         files = web.Application()
         files.add_routes([web.get("/files/{key}", Files(self._knobs, signer, self._ledger).get)])
         for app, host, port in ((api, "127.0.0.1", self._api_port), (files, "localhost", self._files_port)):
@@ -241,4 +279,3 @@ class Portal:
         for runner in self._runners:
             with contextlib.suppress(Exception):
                 await runner.cleanup()
-

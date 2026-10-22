@@ -21,6 +21,7 @@
       {% if tried.finished.stats.bronze %}<a href="/runs/{{ tried.finished.id }}/bronze">What the portal sent</a>{% endif %}
       {% if crawl.files_saved or crawl.files_failed %}<span class="muted"><span class="num">{{ crawl.files_saved }}</span> files saved{% if crawl.files_failed %}, <span class="warn"><span class="num">{{ crawl.files_failed }}</span> didn't download</span>{% endif %}.</span>{% endif %}
       {% if crawl.rate_limited %}<span class="muted">The portal rate-limited the scrape {{ crawl.rate_limited }} time{{ "s" if crawl.rate_limited != 1 }}, so it slowed to {{ crawl.slowed_to }} s between requests.</span>{% endif %}
+      {% if crawl.renewed %}<span class="muted">The portal dropped the session {{ crawl.renewed }} time{{ "s" if crawl.renewed != 1 }}; the scrape got a fresh one and carried on.</span>{% endif %}
       {% if crawl.challenged %}<span class="warn">Bot checks stopped {{ crawl.challenged }} request{{ "s" if crawl.challenged != 1 }}. Ask the agent to handle them.</span>{% endif %}
       {% if crawl.verdict == "relogin" %}<span class="warn">The portal turned the scraper away{% if crawl.refused %} ({{ crawl.refused }}){% endif %} although it sent the saved sign-in. Ask the agent to sign in again.</span>
       {% elif crawl.verdict == "heal" and crawl.refused %}<span class="warn">The portal turned the scraper away ({{ crawl.refused }}){% if crawl.browser %}, even from a stealth browser{% endif %}. Getting past it is the scraper's job: ask the agent to fix it.</span>

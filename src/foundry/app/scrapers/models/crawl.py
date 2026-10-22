@@ -40,6 +40,7 @@ class Crawl(BaseModel, frozen=True):
     browser: bool = False
     files_saved: int = 0
     files_failed: int = 0
+    renewed: int = 0
 
     @classmethod
     def of(cls, stats: CrawlStats, previous_valid: int, job: CrawlJob) -> "Crawl":
@@ -58,6 +59,7 @@ class Crawl(BaseModel, frozen=True):
             browser=job.browser is not None,
             files_saved=stats.files_saved,
             files_failed=stats.files_failed,
+            renewed=stats.renewed,
         )
 
     @property

@@ -18,7 +18,9 @@ class Knobs(BaseModel, frozen=True):
     """How the fake portal behaves in one scenario. `rate` is the API's token bucket in requests per second (0 for no
     limit), answered past `burst` with a 429 that asks for `retry_after` seconds, or for nothing. The fractions are of
     API requests (`flaky`, `hangs`, `resets`), of bids (`challenged`, the same ones every time, as a firewall that
-    flagged them), or of files (`stale`, links issued already expired; `viewers`, files served as an HTML viewer)."""
+    flagged them), or of files (`stale`, links issued already expired; `viewers`, files served as an HTML viewer).
+    `sessions_last` (0 for forever) is how many API requests the portal's guest sessions last before it forgets them
+    all, and sends the next request on one to sign in."""
 
     listings: int = 1000
     page_size: int = 50
@@ -35,6 +37,7 @@ class Knobs(BaseModel, frozen=True):
     link_seconds: float = 600
     stale: float = 0
     viewers: float = 0
+    sessions_last: int = 0
     seed: int = 7
 
     @property
@@ -162,6 +165,7 @@ class Expectation(BaseModel, frozen=True):
     raises: str | None = None
     rate_limited: bool = False
     challenged: bool = False
+    renewed: bool = False
     log: str | None = None
     reason: str | None = None
 
@@ -191,6 +195,8 @@ class Expectation(BaseModel, frozen=True):
             failed.append("no rate limit counted")
         if self.challenged and not seen.crawl.challenged:
             failed.append("no challenge counted")
+        if self.renewed and not seen.crawl.renewed:
+            failed.append("no session renewed")
         if self.log is not None and self.log not in seen.log:
             failed.append(f"no {self.log!r} in stderr")
         if self.reason is not None and not any(self.reason in error for error in seen.crawl.errors):
@@ -244,4 +250,3 @@ class Outcome(BaseModel, frozen=True):
             f"{crawl.challenged if crawl else 0:>4} {len(crawl.errors) if crawl else 0:>3} {seen.beats:>4} "
             f"{seen.peak_rss_kb // KB_PER_MB:>5}  {verdict}, {result}"
         )
-

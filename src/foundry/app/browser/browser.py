@@ -1,3 +1,4 @@
+import asyncio
 import contextlib
 import uuid
 from collections.abc import AsyncGenerator
@@ -121,8 +122,13 @@ class Accounts:
         self._credentials = credentials
 
     async def access(self, source_id: uuid.UUID) -> Access:
-        """What a live crawl of the portal signs in with."""
-        return Access(session=await self.session(source_id), credentials=await self._credentials.values(source_id))
+        """What a live crawl of the portal signs in with: its session, its saved credentials, and its account's
+        `username` and `password`, for a spider's `sign_in` when the session is lost mid-crawl."""
+        account, saved, session = await asyncio.gather(
+            self.account(source_id), self._credentials.values(source_id), self.session(source_id)
+        )
+        login = {"username": account.username, "password": account.password} if account is not None else {}
+        return Access(session=session, credentials={**login, **saved})
 
     async def username(self, source_id: uuid.UUID) -> str | None:
         """The login's username, for showing without its password."""
@@ -146,9 +152,8 @@ class Accounts:
 
     async def secrets(self, source_id: uuid.UUID) -> Secrets:
         """What signs in to the portal, to hide in what is kept of it: the password, the credentials and the session."""
-        access, account = await self.access(source_id), await self.account(source_id)
-        named = [*access.credentials.values(), *([account.password] if account is not None else [])]
-        return Secrets(named, access.session)
+        access = await self.access(source_id)
+        return Secrets(access.credentials.values(), access.session)
 
     async def session(self, source_id: uuid.UUID) -> Session | None:
         async with self._sessionmaker() as session:

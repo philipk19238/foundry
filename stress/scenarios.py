@@ -62,6 +62,13 @@ SCENARIOS = (
         expect=Expectation(raises="CrawlStalled"),
     ),
     Scenario(
+        name="session-drop",
+        about="the portal's guest sessions last 80 API requests, then a request is sent to sign in; the crawl renews "
+        "its session in the browser and carries on, with every bid",
+        knobs=Knobs(listings=200, sessions_last=80),
+        expect=Expectation(renewed=True),
+    ),
+    Scenario(
         name="restart",
         about="a person restarts the crawl after 2 beats (SIGTERM); the next attempt resumes",
         knobs=Knobs(latency=0.05),

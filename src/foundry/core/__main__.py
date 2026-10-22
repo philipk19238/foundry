@@ -69,7 +69,7 @@ async def crawl(job: CrawlJob) -> None:
     module = importlib.util.module_from_spec(found)
     found.loader.exec_module(module)
     (portal,) = spider.spiders(module)
-    middlewares = {"foundry.core.middlewares.SessionMiddleware": 500}
+    middlewares = {"foundry.core.session.SessionMiddleware": 500}
     if job.fixtures is not None:
         middlewares["foundry.core.middlewares.ReplayMiddleware"] = 950
     if job.browser is not None:
@@ -128,6 +128,7 @@ async def crawl(job: CrawlJob) -> None:
         valid=stats.get(spider.VALID, 0),
         invalid=stats.get(spider.INVALID, 0),
         logged_out=stats.get(spider.LOGGED_OUT, False),
+        renewed=stats.get(spider.RENEWED, 0),
         refused=stats.get(spider.REFUSED, ""),
         challenged=stats.get(spider.CHALLENGED, 0),
         rate_limited=stats.get(pace.RATE_LIMITED, 0),
