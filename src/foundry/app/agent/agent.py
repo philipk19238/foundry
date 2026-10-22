@@ -8,6 +8,7 @@ import uuid
 from pathlib import Path
 from typing import assert_never
 
+import jinja2
 from openai_codex import ApprovalMode, AsyncCodex, AsyncTurnHandle, CodexConfig, Sandbox
 from openai_codex.errors import CodexError
 from openai_codex.generated.v2_all import (
@@ -45,6 +46,9 @@ TOOL_SECONDS = 3000
 INBOX_SECONDS = 3
 MAX_RESTARTS = 3
 SAMPLES = 5
+PULLS = jinja2.Environment(
+    loader=jinja2.FileSystemLoader(Path(__file__).parent / "pulls"), trim_blocks=True, lstrip_blocks=True
+)
 
 
 class Narrator:
@@ -279,6 +283,14 @@ class Codex:
         return [name for name in names if name in os.environ]
 
 
+def cell(text: str) -> str:
+    """Text that fits in one markdown table cell: on one line, with its pipes escaped."""
+    return " ".join(text.split()).replace("|", "\\|")
+
+
+PULLS.filters.update(cell=cell)
+
+
 class Proposals:
     """Turns what the agent submitted into a pull request: every site the branch touches must pass its replay, the
     submitted site gets a staging crawl against the live portal from the branch, and both go in the description so the
@@ -286,7 +298,7 @@ class Proposals:
 
     def __init__(
         self, clones: Clones, pulls: GitHubPulls, crawls: Crawls, accounts: Accounts, catalog: Catalog,
-        versions: Versions, timeline: Timeline,
+        versions: Versions, timeline: Timeline, settings: Settings,
     ) -> None:  # fmt: skip
         self._clones = clones
         self._pulls = pulls
@@ -295,6 +307,7 @@ class Proposals:
         self._catalog = catalog
         self._versions = versions
         self._timeline = timeline
+        self._base_url = settings.base_url
 
     async def propose(self, lease: Lease, workspace: Workspace, submission: handoff.Submission) -> outcomes.Outcome:
         checkout = workspace.checkout
@@ -318,7 +331,7 @@ class Proposals:
         )
         branch = await self._clones.push(checkout)
         source = await self._catalog.source(lease.source_id)
-        body = self.describe(lease, source.url, submission, replays, staging)
+        body = self.describe(lease, source.url, branch, submission, replays, staging)
         pull = await self._pulls.open(branch, submission.title, body)
         version = await self._versions.propose(lease, submission.site, branch, pull.number)
         return outcomes.ScraperPull(version=version, url=pull.html_url)
@@ -327,32 +340,30 @@ class Proposals:
         return report.crawl.verdict == Verdict.HEALTHY and report.crawl.valid > 0
 
     def describe(
-        self, lease: Lease, url: str, submission: handoff.Submission, replays: dict[str, CrawlReport],
+        self, lease: Lease, portal: str, branch: str, submission: handoff.Submission, replays: dict[str, CrawlReport],
         staging: CrawlReport,
     ) -> str:  # fmt: skip
-        crawl = staging.crawl
-        lines = [
-            f"Opened by foundry run `{lease.run_id}` for {url}.",
-            "",
-            submission.summary,
-            "",
-            "### Replay of the captured fixtures",
-            *(f"- `{key}`: {report.crawl.valid} listings" for key, report in replays.items()),
-            "",
-            f"### Staging crawl of `{submission.site}` from this branch, against the live portal",
-            f"{crawl.verdict}: {crawl.valid} listings, {crawl.invalid} invalid, crashed {crawl.crashed}",
-            *(f"- error: {error}" for error in crawl.errors),
-            "",
-            "| Title | Due | Files |",
-            "|---|---|---|",
-            *(
-                f"| [{listing.title}]({listing.url}) | {listing.due_at or ''} | {len(listing.files)} |"
-                for listing in staging.listings[:SAMPLES]
-            ),
-            "",
-            "Merging registers this scraper; foundry picks the merge up and refreshes the source from `main`.",
-        ]
-        return "\n".join(lines)
+        """A scraper's pull request, from the template every one follows: what it does, how it reads the portal, how
+        to test it, sample output, gaps, and what to check before merging."""
+        return PULLS.get_template("scraper.md").render(
+            portal=portal,
+            branch=branch,
+            run_id=lease.run_id,
+            run_url=f"{self._base_url}/runs/{lease.run_id}",
+            source_id=lease.source_id,
+            source_url=f"{self._base_url}/sources/{lease.source_id}",
+            submission=submission,
+            replays=replays,
+            staging=staging,
+            samples=staging.listings[:SAMPLES],
+            first=staging.listings[0].model_dump_json(indent=2, exclude_defaults=True) if staging.listings else "",
+        )
+
+    def describe_change(self, run_id: uuid.UUID, change: handoff.Change) -> str:
+        """A pull request to foundry itself, from its template: what changes, the blocker, and how it was tested."""
+        return PULLS.get_template("change.md").render(
+            run_id=run_id, run_url=f"{self._base_url}/runs/{run_id}", change=change
+        )
 
 
 class Agent:
